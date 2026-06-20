@@ -119,6 +119,8 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 #clear-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(255,175,110,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(255,120,60,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
 #clear-btn:hover, #clear-btn.cursor-on { color: #ffbb77; background: rgba(255,120,60,0.18); border-color: rgba(255,120,60,0.6); }
 #clear-objs-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(255,120,120,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(255,60,60,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
+#recenter-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(80,220,255,0.88); background: rgba(0,10,25,0.52); border: 1px solid rgba(0,180,255,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
+#recenter-btn.cursor-on { color: #88eeff; background: rgba(0,160,255,0.18); border-color: rgba(0,200,255,0.7); }
 #clear-objs-btn:hover, #clear-objs-btn.cursor-on { color: #ff8888; background: rgba(255,60,60,0.18); border-color: rgba(255,60,60,0.6); }
 
 /* ── Object tabs (2D / 3D) ────────────────────────────────────────────────── */
@@ -371,6 +373,12 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
       <button id="clear-btn">CLEAR INK</button>
       <button id="clear-objs-btn">CLEAR OBJS</button>
     </div>
+  </div>
+
+  <!-- HEAD TRACKING -->
+  <div class="panel-section">
+    <div class="panel-section-label">HEAD TRACK</div>
+    <button id="recenter-btn">RECENTER</button>
   </div>
 
   <!-- SETTINGS -->
@@ -958,6 +966,25 @@ let joinLineGeo, joinLinePts, joinLineMesh;   // created in scene setup below
 let joinFlashObjs  = [];     // [{mesh, emissive}] waiting to restore after white flash
 let joinFlashEnd   = 0;      // performance.now() timestamp when flash expires
 
+// ── Head-tracking state ───────────────────────────────────────────────────────
+let baseAlpha=null, baseBeta=null;
+let camYaw=0, camPitch=0;
+
+if(location.protocol!=='https:'&&location.hostname!=='localhost')
+  console.warn('[IRON HAND] DeviceOrientation requires HTTPS — head-tracking will not fire on plain HTTP or file://');
+
+window.addEventListener('deviceorientation',e=>{
+  if(e.alpha===null) return;
+  if(baseAlpha===null){ baseAlpha=e.alpha; baseBeta=e.beta; }
+  let dAlpha=e.alpha-baseAlpha;
+  if(dAlpha>180) dAlpha-=360;
+  if(dAlpha<-180) dAlpha+=360;
+  const rawYaw=dAlpha*(Math.PI/180);
+  const rawPitch=(e.beta-baseBeta)*(Math.PI/180);
+  camYaw+=(rawYaw-camYaw)*0.1;
+  camPitch+=(rawPitch-camPitch)*0.1;
+});
+
 // ── Grab state ────────────────────────────────────────────────────────────────
 let grabbedObj=null;
 let rotatingObj=null;                    // object currently being rotated (separate from grab)
@@ -1109,7 +1136,7 @@ document.querySelectorAll('.obj-tab').forEach(tab=>{
 });
 
 // ── FIX 5: Dwell-based hover system ──────────────────────────────────────────
-const ALL_UI_BTNS=document.querySelectorAll('.mode-btn,.hb,#clear-btn,#clear-objs-btn,.obj-tab');
+const ALL_UI_BTNS=document.querySelectorAll('.mode-btn,.hb,#clear-btn,#clear-objs-btn,.obj-tab,#recenter-btn');
 const trayItems  =document.querySelectorAll('.tray-item');
 
 function drawDwellRing(cx,cy,progress){
@@ -1253,6 +1280,7 @@ function fingersExtended(lms){
 
 document.getElementById('clear-btn').addEventListener('click',clearInk);
 document.getElementById('clear-objs-btn').addEventListener('click',clearObjects);
+document.getElementById('recenter-btn').addEventListener('click',()=>{ baseAlpha=null; baseBeta=null; camYaw=0; camPitch=0; });
 
 // ── MediaPipe ─────────────────────────────────────────────────────────────────
 const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`});
@@ -1895,6 +1923,8 @@ function animate(now){
     joinFlashObjs=[];
   }
 
+  cam.rotation.y=-camYaw;
+  cam.rotation.x=-camPitch;
   const t0=performance.now();
   renderer.render(scene,cam);
   last3js=performance.now()-t0;fpsTick++;
