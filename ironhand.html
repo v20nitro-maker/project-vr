@@ -275,6 +275,15 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
   letter-spacing: 0.28em; background: rgba(0,0,0,0.5); padding: 6px 14px; border-radius: 3px;
 }
 
+/* ── Extrude depth HUD ───────────────────────────────────────────────────────── */
+#extrude-depth-hud {
+  position: fixed; z-index: 6; pointer-events: none; display: none;
+  font-family: 'Orbitron', monospace; font-size: 9px; color: rgba(34,255,220,0.92);
+  letter-spacing: 0.15em; transform: translate(-50%,-180%);
+  background: rgba(0,0,0,0.42); padding: 2px 8px; border-radius: 2px;
+  border: 1px solid rgba(34,255,200,0.28);
+}
+
 /* ── Mobile touch targets ────────────────────────────────────────────────────── */
 @media (pointer: coarse) {
   #camera-flip-btn { display: flex; }
@@ -410,6 +419,7 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 <div id="recording-border"></div>
 <div id="save-prompt"><button id="save-btn">▼ TAP TO SAVE VIDEO</button></div>
 <div id="orient-hint"><div id="orient-msg">↻ ROTATE TO LANDSCAPE</div></div>
+<div id="extrude-depth-hud"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
@@ -447,6 +457,7 @@ const scaleHint      = document.getElementById('scale-hint');      // Fix 6
 const dwellCanvas    = document.getElementById('dwell-canvas');    // Fix 5
 const dwellCtx       = dwellCanvas.getContext('2d');
 const depthFill      = document.getElementById('depth-fill');       // part 5: depth bar fill
+const extDepthHud    = document.getElementById('extrude-depth-hud');
 
 // ── Mobile + mirror state ─────────────────────────────────────────────────────
 const isMobile = window.matchMedia('(pointer: coarse)').matches;
@@ -743,6 +754,9 @@ const objects=[]; const MAX_OBJECTS=24;
 
 function makeStarShape(){const s=new THREE.Shape();for(let i=0;i<10;i++){const r=i%2===0?0.46:0.20,a=(i*Math.PI/5)-Math.PI/2;i===0?s.moveTo(Math.cos(a)*r,Math.sin(a)*r):s.lineTo(Math.cos(a)*r,Math.sin(a)*r);}s.closePath();return s;}
 function makeTriShape(){const s=new THREE.Shape();s.moveTo(0,0.5);s.lineTo(-0.43,-0.25);s.lineTo(0.43,-0.25);s.closePath();return s;}
+function makeCircleShape(){const s=new THREE.Shape(),r=0.44,n=48;s.moveTo(r,0);for(let i=1;i<n;i++){const a=i*Math.PI*2/n;s.lineTo(Math.cos(a)*r,Math.sin(a)*r);}s.closePath();return s;}
+function makeSquareShape(){const h=0.39,s=new THREE.Shape();s.moveTo(-h,-h);s.lineTo(h,-h);s.lineTo(h,h);s.lineTo(-h,h);s.closePath();return s;}
+function makePentagonShape(){const s=new THREE.Shape(),r=0.44,n=5;s.moveTo(r,0);for(let i=1;i<n;i++){const a=i*Math.PI*2/n;s.lineTo(Math.cos(a)*r,Math.sin(a)*r);}s.closePath();return s;}
 
 function spawnObject(shapeType,pos){
   if(objects.length>=MAX_OBJECTS){const old=objects.shift();disposeOrbitRing(old);scene.remove(old);old.geometry.dispose();old.material.dispose();}
@@ -750,13 +764,13 @@ function spawnObject(shapeType,pos){
   const col=new THREE.Color().setHSL(hue,0.88,0.55);
   const emi=new THREE.Color().setHSL(hue,1.0,0.20);
   const is3D=shapeType.endsWith('3d');
-  let geo;
+  let geo, srcShape=null;
   switch(shapeType){
-    case 'circle2d':  geo=new THREE.CircleGeometry(0.44,48);break;
-    case 'square2d':  geo=new THREE.PlaneGeometry(0.78,0.78);break;
-    case 'triangle2d':geo=new THREE.ShapeGeometry(makeTriShape());break;
-    case 'star2d':    geo=new THREE.ShapeGeometry(makeStarShape());break;
-    case 'pentagon2d':geo=new THREE.CircleGeometry(0.44,5);break;
+    case 'circle2d':  srcShape=makeCircleShape();   geo=new THREE.ShapeGeometry(srcShape);break;
+    case 'square2d':  srcShape=makeSquareShape();   geo=new THREE.ShapeGeometry(srcShape);break;
+    case 'triangle2d':srcShape=makeTriShape();      geo=new THREE.ShapeGeometry(srcShape);break;
+    case 'star2d':    srcShape=makeStarShape();     geo=new THREE.ShapeGeometry(srcShape);break;
+    case 'pentagon2d':srcShape=makePentagonShape(); geo=new THREE.ShapeGeometry(srcShape);break;
     case 'sphere3d':  geo=new THREE.SphereGeometry(0.38,20,20);break;
     case 'box3d':     geo=new THREE.BoxGeometry(0.68,0.68,0.68);break;
     case 'cylinder3d':geo=new THREE.CylinderGeometry(0.28,0.28,0.68,20);break;
@@ -769,6 +783,7 @@ function spawnObject(shapeType,pos){
   mesh.position.copy(pos||new THREE.Vector3(rand(-3,3),rand(-2,2),0));
   if(is3D) mesh.rotation.set(rand(0.2,0.9),rand(0,Math.PI*2),0);
   mesh.userData.baseEI=0.55;
+  mesh.userData.sourceShape=srcShape;
   scene.add(mesh); objects.push(mesh);
   return mesh;
 }
@@ -787,6 +802,7 @@ const C_DRAW_ACT   ={col:0x22ffcc,emi:0x00aa77,lc:0x22ffcc};
 const C_ROTATE     ={col:0xff8833,emi:0xaa4400,lc:0xff8833};
 const C_RESIZE     ={col:0xff4444,emi:0xaa0000,lc:0xff4444};
 const C_WAVE       ={col:0xff2244,emi:0xaa0022,lc:0xff2244};
+const C_EXTRUDE    ={col:0x22ffdd,emi:0x00aa88,lc:0x22ffdd};
 
 // ── FIX 6: Resize handle — two arrowhead cones only, no ring/shaft ────────────
 const rhConeMat1=new THREE.MeshBasicMaterial({color:0xff8833});
@@ -810,10 +826,20 @@ rhGroup.add(new THREE.PointLight(0xff8833,0.8,0.8));
 rhGroup.visible=false;
 scene.add(rhGroup);
 
+// ── EXTRUDE handle — cyan cone tip pointing toward camera (+Z) ─────────────────
+const extHandleMat=new THREE.MeshBasicMaterial({color:0x22ffdd});
+const extHandleCone=new THREE.Mesh(new THREE.ConeGeometry(0.06,0.18,6),extHandleMat);
+extHandleCone.rotation.x=-Math.PI/2;   // tip → +Z (toward camera)
+const extHandle=new THREE.Group();
+extHandle.add(extHandleCone);
+extHandle.add(new THREE.PointLight(0x22ffdd,0.9,1.0));
+extHandle.visible=false;
+scene.add(extHandle);
+
 const _bbox=new THREE.Box3();
 
 function updateResizeHandle(cursorMidPos){
-  if (!selectedObj||mode!=='interact'){rhGroup.visible=false;scaleHint.style.display='none';return;}
+  if (!selectedObj||mode!=='interact'||isExtruding){rhGroup.visible=false;scaleHint.style.display='none';return;}
   _bbox.setFromObject(selectedObj);
   rhGroup.position.set(_bbox.max.x+0.15,_bbox.max.y+0.15,selectedObj.position.z);
   rhGroup.visible=true;
@@ -871,6 +897,12 @@ function unlockObject(obj){
   if(obj.userData.lockEmissiveHex!=null) obj.material.emissive.setHex(obj.userData.lockEmissiveHex);
   obj.material.emissiveIntensity=obj.userData.baseEI;            // grabbable again, normal glow
 }
+
+// ── Extrude state ─────────────────────────────────────────────────────────────
+let isExtruding=false;
+let extrudingObj=null;
+let extrudeDepth=0.05;
+let extrudeInitZ=0;
 
 // ── Grab state ────────────────────────────────────────────────────────────────
 let grabbedObj=null;
@@ -1110,6 +1142,7 @@ function clearObjects(){
   grabbedObj=null;rotatingObj=null;selectedObj=null;isScaling=false;rhGroup.visible=false;
   lockPendingObj=null;unlockTarget=null;
   if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
+  isExtruding=false;extrudingObj=null;extHandle.visible=false;extDepthHud.style.display='none';
 }
 
 // Count extended (non-thumb) fingers: tip clearly farther from wrist than its knuckle.
@@ -1390,6 +1423,7 @@ function animate(now){
       else if(mode==='rotate') cstate=indexPinching?C_ROTATE:C_IDLE;
       else if(midPinching&&!grabbedObj) cstate=C_ROTATE;   // middle-pinch rotate (ignored while the index pinch holds an object)
       else if(waveReady&&moveSpeed>WAVE_SPEED*0.55) cstate=C_WAVE;
+      else if(isExtruding)     cstate=C_EXTRUDE;
       else if(isScaling)       cstate=C_RESIZE;
       else                     cstate=indexPinching?C_PINCH:C_IDLE;
       cursorMat.color.set(cstate.col);cursorMat.emissive.set(cstate.emi);cLight.color.set(cstate.lc);
@@ -1402,6 +1436,21 @@ function animate(now){
 
     // ══ INTERACT ══════════════════════════════════════════════════════════════
     if(mode==='interact'){
+      // EXTRUDE handle: show cyan arrowhead 0.3 units in front of any 2D object within 0.30 XY
+      let extHandleTarget=null;
+      if(!grabbedObj&&!isScaling&&!isExtruding){
+        let c2d=null,c2dD=0.30;
+        for(const obj of objects){
+          if(obj.userData.deleting||obj.userData.locked||!obj.userData.sourceShape)continue;
+          const d=xyDist(_cur,obj.position);
+          if(d<c2dD){c2dD=d;c2d=obj;}
+        }
+        if(c2d){
+          extHandle.position.set(c2d.position.x,c2d.position.y,c2d.position.z+0.30);
+          extHandle.visible=true; extHandleTarget=c2d;
+        } else { extHandle.visible=false; }
+      } else if(!isExtruding){ extHandle.visible=false; }
+
       if(indexPinchJustStarted&&!uiHit&&!midPinching){   // CONFLICT GUARD: never start a grab while the middle pinch (rotate) is engaged
         if(trayHit&&!draggingTrayItem){
           // Drag from tray: spawn at cursor and immediately grab
@@ -1416,6 +1465,11 @@ function animate(now){
           isScaling=true;
           scaleInitDist=Math.max(0.05,xyDist(_cur,selectedObj.position));
           scaleInitVal=selectedObj.scale.x;
+        } else if(!trayHit&&extHandleTarget){
+          // Pinch near extrude handle → begin extrusion
+          isExtruding=true; extrudingObj=extHandleTarget;
+          extrudeInitZ=_cur.z; extrudeDepth=0.05;
+          extHandle.visible=false;
         } else if(!trayHit){
           let closest=null,closestD=0.52;
           for(const obj of objects){
@@ -1441,6 +1495,25 @@ function animate(now){
         selectedObj.scale.y+=(target-selectedObj.scale.y)*lT;
         selectedObj.scale.z+=(target-selectedObj.scale.z)*lT;
         rhConeMat1.color.set(0xffdd00);rhConeMat2.color.set(0xffdd00);
+      }
+
+      // EXTRUDE: rebuild geometry each frame while pinching, depth = how far hand moved toward camera
+      if(isExtruding&&extrudingObj&&indexPinching){
+        extrudeDepth=Math.max(0.05,Math.min(3.0,extrudeInitZ-_cur.z));
+        const newGeo=new THREE.ExtrudeGeometry(extrudingObj.userData.sourceShape,{depth:extrudeDepth,bevelEnabled:false});
+        newGeo.translate(0,0,-extrudeDepth*0.5);  // center extrusion around object's local origin
+        extrudingObj.geometry.dispose();
+        extrudingObj.geometry=newGeo;
+        if(extrudeDepth>0.1){
+          extrudingObj.material.roughness=0.24;
+          extrudingObj.material.metalness=0.62;
+          extrudingObj.material.side=THREE.FrontSide;
+        }
+        const hv=extrudingObj.position.clone().project(cam);
+        extDepthHud.style.left=((hv.x+1)*0.5*window.innerWidth)+'px';
+        extDepthHud.style.top=((-hv.y+1)*0.5*window.innerHeight)+'px';
+        extDepthHud.textContent=extrudeDepth.toFixed(2)+'u';
+        extDepthHud.style.display='block';
       }
 
       // FIX 2: wave-to-delete uses the 5-frame velocity vector (speed + direction)
@@ -1472,6 +1545,11 @@ function animate(now){
       }
 
       if(indexPinchJustEnded){
+        if(isExtruding){
+          isExtruding=false;
+          if(extrudingObj){extrudingObj.userData.sourceShape=null;extrudingObj=null;}
+          extrudeDepth=0.05; extDepthHud.style.display='none';
+        }
         if(isScaling){isScaling=false;rhConeMat1.color.set(0xff8833);rhConeMat2.color.set(0xff8833);}
         if(grabbedObj){
           grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;
@@ -1601,6 +1679,8 @@ function animate(now){
     cnx=null;cny=null;bufCount=0;bufHead=0;
     // Reset depth + cancel any in-flight lock/unlock gesture (locked objects themselves stay locked)
     curZ=0;lockPendingObj=null;lockPalmStart=0;unlockTarget=null;updateDepthBar(0);
+    if(isExtruding){isExtruding=false;if(extrudingObj){extrudingObj.userData.sourceShape=null;extrudingObj=null;}extrudeDepth=0.05;extDepthHud.style.display='none';}
+    extHandle.visible=false;
     if(mode==='draw'&&isDrawing&&now-lastDrawTime>800){
       isDrawing=false;
       if(drawPoints.length>=20)finalizeDrawing();else{drawPoints=[];prevDX=prevDY=null;}
