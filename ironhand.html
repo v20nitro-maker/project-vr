@@ -836,6 +836,14 @@ extHandle.add(new THREE.PointLight(0x22ffdd,0.9,1.0));
 extHandle.visible=false;
 scene.add(extHandle);
 
+// ── Join preview line ─────────────────────────────────────────────────────────
+joinLinePts=new Float32Array(6);
+joinLineGeo=new THREE.BufferGeometry();
+joinLineGeo.setAttribute('position',new THREE.BufferAttribute(joinLinePts,3));
+joinLineMesh=new THREE.Line(joinLineGeo,new THREE.LineBasicMaterial({color:0x22ffff,transparent:true,opacity:0.8}));
+joinLineMesh.visible=false;
+scene.add(joinLineMesh);
+
 const _bbox=new THREE.Box3();
 
 function updateResizeHandle(cursorMidPos){
@@ -866,18 +874,21 @@ function updateResizeHandle(cursorMidPos){
 function startDeleteAnimation(mesh,vx,vy){
   const speed=Math.hypot(vx,vy)+0.001;
   mesh.userData.deleting=true;
-  mesh.material.transparent=true;
+  if(mesh.isGroup) mesh.traverse(c=>{if(c.isMesh)c.material.transparent=true;});
+  else mesh.material.transparent=true;
   deletingObjects.push({mesh,slideVX:(vx/speed)*18,slideVY:(vy/speed)*18});
 }
 
 // ── SPATIAL LOCK (parts 3/4): pin an object in space, ringed by a spinning orbit halo ──
 function lockObject(obj){
   obj.userData.locked=true;
-  obj.userData.lockedPos=obj.position.clone();                 // frozen position (re-applied every frame)
-  obj.userData.lockEmissiveHex=obj.material.emissive.getHex(); // remember to restore on unlock
-  obj.material.emissive.set(0x2244aa);                         // shift emissive to blue-white
-  obj.material.emissiveIntensity=obj.userData.baseEI;
-  if(selectedObj===obj){ selectedObj=null; rhGroup.visible=false; }  // drop resize handle: locked = no scale either
+  obj.userData.lockedPos=obj.position.clone();
+  if(!obj.isGroup){
+    obj.userData.lockEmissiveHex=obj.material.emissive.getHex();
+    obj.material.emissive.set(0x2244aa);
+    obj.material.emissiveIntensity=obj.userData.baseEI;
+  }
+  if(selectedObj===obj){ selectedObj=null; rhGroup.visible=false; }
   // thin orbit ring sized to the object; spun on Y in the per-frame locked loop
   _bbox.setFromObject(obj);
   const sz=_bbox.getSize(new THREE.Vector3());
@@ -894,8 +905,32 @@ function disposeOrbitRing(obj){
 function unlockObject(obj){
   obj.userData.locked=false;
   disposeOrbitRing(obj);
-  if(obj.userData.lockEmissiveHex!=null) obj.material.emissive.setHex(obj.userData.lockEmissiveHex);
-  obj.material.emissiveIntensity=obj.userData.baseEI;            // grabbable again, normal glow
+  if(!obj.isGroup){
+    if(obj.userData.lockEmissiveHex!=null) obj.material.emissive.setHex(obj.userData.lockEmissiveHex);
+    obj.material.emissiveIntensity=obj.userData.baseEI;
+  }
+}
+function doJoin(a,b){
+  // Save emissive colors before overwriting with flash
+  const emA=a.material.emissive.clone(), emB=b.material.emissive.clone();
+  // Build group at midpoint between the two objects
+  const mid=new THREE.Vector3().addVectors(a.position,b.position).multiplyScalar(0.5);
+  const grp=new THREE.Group();
+  grp.position.copy(mid);
+  grp.userData.baseEI=0; grp.userData.locked=false;
+  // Remove both from objects[] before reparenting (grp.add() removes from scene automatically)
+  const ai=objects.indexOf(a); if(ai>=0) objects.splice(ai,1);
+  const bi=objects.indexOf(b); if(bi>=0) objects.splice(bi,1);
+  a.position.sub(mid); b.position.sub(mid);
+  grp.add(a); grp.add(b);
+  scene.add(grp); objects.push(grp);
+  // Flash children white for 200 ms
+  a.material.emissive.set(0xffffff); a.material.emissiveIntensity=2.0;
+  b.material.emissive.set(0xffffff); b.material.emissiveIntensity=2.0;
+  joinFlashObjs=[{mesh:a,emissive:emA},{mesh:b,emissive:emB}];
+  joinFlashEnd=performance.now()+200;
+  grabbedObj=null; secGrabbedObj=null;
+  if(joinLineMesh) joinLineMesh.visible=false;
 }
 
 // ── Extrude state ─────────────────────────────────────────────────────────────
@@ -911,6 +946,17 @@ let ptcPinchPt=null;          // _cur clone at pinch moment (THREE.Vector3)
 let ptcObj=null;              // the growing seed object
 const PTC_HOLD_MS=500;        // ms hold before seed spawns
 const PTC_SCALE_K=1.2;        // distance → scale multiplier
+
+// ── Two-hand join state ───────────────────────────────────────────────────────
+let leftLandmarks  = null;   // populated each onResults frame
+let rightLandmarks = null;
+let secPinching    = false;  // secondary-hand pinch state (updated early each animate frame)
+let secWasPinching = false;
+let secGrabbedObj  = null;   // object held by the secondary hand
+const _scur = new THREE.Vector3();  // secondary-hand cursor (world space, no smoothing)
+let joinLineGeo, joinLinePts, joinLineMesh;   // created in scene setup below
+let joinFlashObjs  = [];     // [{mesh, emissive}] waiting to restore after white flash
+let joinFlashEnd   = 0;      // performance.now() timestamp when flash expires
 
 // ── Grab state ────────────────────────────────────────────────────────────────
 let grabbedObj=null;
@@ -1001,6 +1047,43 @@ function screenToWorld(sx, sy, out) {
 
 // XY-only distance (screen plane). Proximity/selection ignores Z so depth never gates a grab.
 function xyDist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+// ── Group-aware material helpers (called on any object in objects[], which may be a THREE.Group after a join) ──
+function objRestoreEI(obj){
+  if(obj.isGroup) obj.traverse(c=>{if(c.isMesh)c.material.emissiveIntensity=c.userData.baseEI;});
+  else if(obj.material) obj.material.emissiveIntensity=obj.userData.baseEI;
+}
+function objHighlightEI(obj,mult){
+  if(obj.isGroup) obj.traverse(c=>{if(c.isMesh)c.material.emissiveIntensity=c.userData.baseEI*mult;});
+  else if(obj.material) obj.material.emissiveIntensity=obj.userData.baseEI*mult;
+}
+function objSetEmissive(obj,hex){
+  if(obj.isGroup) obj.traverse(c=>{if(c.isMesh)c.material.emissive.set(hex);});
+  else if(obj.material) obj.material.emissive.set(hex);
+}
+function disposeObj(obj){
+  if(obj.isGroup) obj.traverse(c=>{if(c.isMesh){c.geometry.dispose();c.material.dispose();}});
+  else{obj.geometry.dispose();obj.material.dispose();}
+}
+// Raw world-space cursor from any hand's landmarks (no smoothing — used for secondary hand only)
+function handCursor(lms,out){
+  const lm7=lms[7],lm8=lms[8];
+  const TIP_EXTEND=0.40;
+  const tipX=lm8.x+(lm8.x-lm7.x)*TIP_EXTEND, tipY=lm8.y+(lm8.y-lm7.y)*TIP_EXTEND;
+  const W=window.innerWidth,H=window.innerHeight;
+  const vw=video.videoWidth||640,vh=video.videoHeight||480;
+  const sc=Math.max(W/vw,H/vh);
+  const sx=(W-vw*sc)/2+(isMirrored?(1-tipX):tipX)*vw*sc;
+  const sy=(H-vh*sc)/2+tipY*vh*sc;
+  screenToWorld(sx,sy,out);
+  out.z=Math.max(-3,Math.min(3,(lm8.z-lms[0].z)*DEPTH_SCALE));
+}
+function handPinchRatio(lms){
+  const W=window.innerWidth,H=window.innerHeight;
+  const pd=Math.hypot((lms[4].x-lms[8].x)*W,(lms[4].y-lms[8].y)*H);
+  const hs=Math.hypot((lms[0].x-lms[9].x)*W,(lms[0].y-lms[9].y)*H)||1;
+  return pd/hs;
+}
 
 // part 5: map cursor depth z∈[-3,+3] → fill height 0–100% (front/+ = full = cyan top).
 function updateDepthBar(z){
@@ -1119,8 +1202,9 @@ function isCursorInTrayArea(rawSX,rawSY){
 document.querySelectorAll('.mode-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     if(mode==='draw'&&isDrawing){isDrawing=false;if(drawPoints.length>=20)finalizeDrawing();else{drawPoints=[];prevDX=prevDY=null;}}
-    if(grabbedObj){grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;grabbedObj=null;}
-    if(rotatingObj){rotatingObj.material.emissiveIntensity=rotatingObj.userData.baseEI;rotatingObj=null;}
+    if(grabbedObj){objRestoreEI(grabbedObj);grabbedObj=null;}
+    if(rotatingObj){objRestoreEI(rotatingObj);rotatingObj=null;}
+    if(secGrabbedObj){objRestoreEI(secGrabbedObj);secGrabbedObj=null;}
     if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
     isScaling=false; axisLock=null; axisFrameCount=0; axisTotalDX=0; axisTotalDY=0;
     smoothRotX=0; smoothRotY=0;
@@ -1145,14 +1229,16 @@ function clearInk(){
   drawPoints=[];prevDX=prevDY=null;isDrawing=false;matchPopup.style.display='none';
 }
 function clearObjects(){
-  for(const obj of objects){disposeOrbitRing(obj);scene.remove(obj);obj.geometry.dispose();obj.material.dispose();}
-  for(const d of deletingObjects){scene.remove(d.mesh);d.mesh.geometry.dispose();d.mesh.material.dispose();}
+  for(const obj of objects){disposeOrbitRing(obj);scene.remove(obj);disposeObj(obj);}
+  for(const d of deletingObjects){scene.remove(d.mesh);disposeObj(d.mesh);}
   deletingObjects.length=0;objects.length=0;
   grabbedObj=null;rotatingObj=null;selectedObj=null;isScaling=false;rhGroup.visible=false;
   lockPendingObj=null;unlockTarget=null;
   if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
   isExtruding=false;extrudingObj=null;extHandle.visible=false;extDepthHud.style.display='none';
   ptcHoldStart=0;ptcPinchPt=null;ptcObj=null;
+  secGrabbedObj=null;secPinching=false;secWasPinching=false;joinFlashObjs=[];
+  if(joinLineMesh) joinLineMesh.visible=false;
 }
 
 // Count extended (non-thumb) fingers: tip clearly farther from wrist than its knuckle.
@@ -1175,11 +1261,14 @@ let mpTick=0;
 hands.onResults(result=>{
   detecting=false;
   let lms=null;
+  leftLandmarks=null; rightLandmarks=null;
   if(result.multiHandLandmarks&&result.multiHandLandmarks.length>0){
     for(let i=0;i<result.multiHandLandmarks.length;i++){
       const hn=result.multiHandedness&&result.multiHandedness[i];
       const sl=hn?(hn.label==='Right'?'Left':'Right'):'Right';
-      if(handFilter==='Both'||sl===handFilter){lms=result.multiHandLandmarks[i];break;}
+      if(sl==='Left') leftLandmarks=result.multiHandLandmarks[i];
+      else rightLandmarks=result.multiHandLandmarks[i];
+      if(!lms&&(handFilter==='Both'||sl===handFilter)) lms=result.multiHandLandmarks[i];
     }
   }
   landmarks=lms;drawPreview(lms);mpTick++;
@@ -1285,8 +1374,14 @@ function animate(now){
     const d=deletingObjects[i];
     d.mesh.position.x+=d.slideVX*dt;
     d.mesh.position.y+=d.slideVY*dt;
-    d.mesh.material.opacity=Math.max(0,d.mesh.material.opacity-2.8*dt);
-    if(d.mesh.material.opacity<=0.01){scene.remove(d.mesh);d.mesh.geometry.dispose();d.mesh.material.dispose();deletingObjects.splice(i,1);}
+    if(d.mesh.isGroup){
+      let maxOp=0;
+      d.mesh.traverse(c=>{if(c.isMesh){c.material.opacity=Math.max(0,c.material.opacity-2.8*dt);maxOp=Math.max(maxOp,c.material.opacity);}});
+      if(maxOp<=0.01){scene.remove(d.mesh);disposeObj(d.mesh);deletingObjects.splice(i,1);}
+    }else{
+      d.mesh.material.opacity=Math.max(0,d.mesh.material.opacity-2.8*dt);
+      if(d.mesh.material.opacity<=0.01){scene.remove(d.mesh);d.mesh.geometry.dispose();d.mesh.material.dispose();deletingObjects.splice(i,1);}
+    }
   }
 
   // SPATIAL LOCK (part 3): locked objects are pinned to lockedPos and their orbit ring spins —
@@ -1361,6 +1456,20 @@ function animate(now){
     if(!midPinching && midRatio<MID_PINCH_START)   midPinching=true;
     else if(midPinching && midRatio>MID_PINCH_END) midPinching=false;
     const midJustStarted=midPinching&&!wasMid;
+
+    // ── Secondary-hand pinch (updated EARLY so join checks in indexPinchJustEnded see fresh state) ──
+    const _secLms=handFilter==='Both'?(landmarks===leftLandmarks?rightLandmarks:leftLandmarks):null;
+    if(_secLms){
+      secWasPinching=secPinching;
+      const _sr=handPinchRatio(_secLms);
+      if(!secPinching&&_sr<PINCH_START) secPinching=true;
+      else if(secPinching&&_sr>PINCH_END) secPinching=false;
+      handCursor(_secLms,_scur);
+    } else {
+      if(secGrabbedObj){objRestoreEI(secGrabbedObj);secGrabbedObj=null;}
+      secPinching=false; secWasPinching=false;
+      if(joinLineMesh) joinLineMesh.visible=false;
+    }
 
     // Finger-extension count + popup state, used by the spatial lock/unlock gestures and the
     // shape-popup palm-wave below. (The old palm→fist→snap clear-all gesture has been removed;
@@ -1492,7 +1601,7 @@ function animate(now){
             grabbedObj=closest;selectedObj=closest;
             grabOffset.copy(closest.position).sub(_cur);
             grabStartTime=now;
-            closest.material.emissiveIntensity=closest.userData.baseEI*3.2;
+            objHighlightEI(closest,3.2);
           } else {
             // Empty space — start pinch-to-create hold timer
             ptcHoldStart=now; ptcPinchPt=_cur.clone();
@@ -1553,7 +1662,7 @@ function animate(now){
           if(selectedObj===obj){selectedObj=null;rhGroup.visible=false;}
           if(rotatingObj===obj) rotatingObj=null;
           if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
-          obj.material.emissiveIntensity=obj.userData.baseEI;
+          objRestoreEI(obj);
           startDeleteAnimation(obj,velX,velY); // slide in the measured velocity direction
           grabbedObj=null;waveFrameCount=0;
         }
@@ -1581,8 +1690,15 @@ function animate(now){
           extrudeDepth=0.05; extDepthHud.style.display='none';
         }
         if(isScaling){isScaling=false;rhConeMat1.color.set(0xff8833);rhConeMat2.color.set(0xff8833);}
-        if(grabbedObj){
-          grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;
+        if(grabbedObj&&secGrabbedObj&&!secPinching&&handFilter==='Both'){
+          // Two-hand join: primary just released while secondary is also done — evaluate distance
+          joinLineMesh.visible=false;
+          const jd=grabbedObj.position.distanceTo(secGrabbedObj.position);
+          if(jd<0.5){ doJoin(grabbedObj,secGrabbedObj); }
+          else{ objRestoreEI(grabbedObj); objRestoreEI(secGrabbedObj); secGrabbedObj=null; grabbedObj=null; }
+          waveFrameCount=0;
+        } else if(grabbedObj){
+          objRestoreEI(grabbedObj);
           // SPATIAL LOCK candidate (part 3): opening into a full palm now (held 800ms) locks it in place
           lockPendingObj=grabbedObj; lockPalmStart=0; lockPendingExpire=now+LOCK_GRACE_MS+LOCK_HOLD_MS;
           grabbedObj=null;
@@ -1612,7 +1728,7 @@ function animate(now){
         if(closest){
           rotatingObj=closest; lastPinchAngle=currAngle;
           axisLock=null;axisFrameCount=0;axisTotalDX=0;axisTotalDY=0;
-          closest.material.emissiveIntensity=closest.userData.baseEI*(rotViaMiddle?2.0:2.8);
+          objHighlightEI(closest,rotViaMiddle?2.0:2.8);
         }
       }
 
@@ -1654,7 +1770,7 @@ function animate(now){
 
       // Release when the rotation pinch ends, mode changes, or it gets suppressed
       if(rotatingObj && !rotAct){
-        rotatingObj.material.emissiveIntensity=rotatingObj.userData.baseEI;
+        objRestoreEI(rotatingObj);
         rotatingObj=null;axisLock=null;axisFrameCount=0;axisTotalDX=0;axisTotalDY=0;
         axisHideAt=now+300;
       }
@@ -1697,8 +1813,11 @@ function animate(now){
     ALL_UI_BTNS.forEach(b=>b.classList.remove('cursor-on'));
     trayItems.forEach(i=>i.classList.remove('cursor-on'));
     hideDwellRing(); dwellTarget=null;
-    if(grabbedObj){grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;grabbedObj=null;}
-    if(rotatingObj){rotatingObj.material.emissiveIntensity=rotatingObj.userData.baseEI;rotatingObj=null;}
+    if(grabbedObj){objRestoreEI(grabbedObj);grabbedObj=null;}
+    if(rotatingObj){objRestoreEI(rotatingObj);rotatingObj=null;}
+    if(secGrabbedObj){objRestoreEI(secGrabbedObj);secGrabbedObj=null;}
+    secPinching=false;secWasPinching=false;
+    if(joinLineMesh) joinLineMesh.visible=false;
     if(isScaling){isScaling=false;rhConeMat1.color.set(0xff8833);rhConeMat2.color.set(0xff8833);}
     if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
     indexPinching=false;midPinching=false;prevHadLandmarks=false;waveFrameCount=0;
@@ -1718,6 +1837,62 @@ function animate(now){
       if(drawPoints.length>=20)finalizeDrawing();else{drawPoints=[];prevDX=prevDY=null;}
     }
     updateResizeHandle(null);
+  }
+
+  // ══ TWO-HAND JOIN: secondary grab, drag, join-line, and release ═══════════
+  if(landmarks&&handFilter==='Both'&&leftLandmarks&&rightLandmarks&&mode==='interact'){
+    const secJustStarted=secPinching&&!secWasPinching;
+    const secJustEnded=!secPinching&&secWasPinching;
+
+    // Secondary grab start: find closest object not already held by primary hand
+    if(secJustStarted&&!secGrabbedObj){
+      let closest=null,closestD=0.52;
+      for(const obj of objects){
+        if(obj.userData.deleting||obj.userData.locked||obj===grabbedObj)continue;
+        const d=xyDist(_scur,obj.position);
+        if(d<closestD){closestD=d;closest=obj;}
+      }
+      if(closest){secGrabbedObj=closest;objHighlightEI(closest,3.2);}
+    }
+
+    // Secondary drag: move held object with secondary hand cursor
+    if(secPinching&&secGrabbedObj&&!secGrabbedObj.userData.locked){
+      secGrabbedObj.position.set(_scur.x,_scur.y,_scur.z);
+    }
+
+    // Join line preview when both hands hold different objects
+    if(grabbedObj&&secGrabbedObj){
+      const dist=grabbedObj.position.distanceTo(secGrabbedObj.position);
+      if(dist<0.5){
+        joinLinePts[0]=grabbedObj.position.x; joinLinePts[1]=grabbedObj.position.y; joinLinePts[2]=grabbedObj.position.z;
+        joinLinePts[3]=secGrabbedObj.position.x;joinLinePts[4]=secGrabbedObj.position.y;joinLinePts[5]=secGrabbedObj.position.z;
+        joinLineGeo.attributes.position.needsUpdate=true;
+        joinLineMesh.visible=true;
+      } else { joinLineMesh.visible=false; }
+    } else { joinLineMesh.visible=false; }
+
+    // Secondary release: if primary is also done → join check; otherwise drop normally
+    if(secJustEnded){
+      if(grabbedObj&&secGrabbedObj&&!indexPinching){
+        // Both hands just released — evaluate join
+        joinLineMesh.visible=false;
+        const d=grabbedObj.position.distanceTo(secGrabbedObj.position);
+        if(d<0.5){ doJoin(grabbedObj,secGrabbedObj); }
+        else{ objRestoreEI(grabbedObj); objRestoreEI(secGrabbedObj); grabbedObj=null; secGrabbedObj=null; }
+      } else if(secGrabbedObj){
+        // Primary still holding — just drop secondary
+        objRestoreEI(secGrabbedObj); secGrabbedObj=null;
+      }
+    }
+  }
+
+  // Flash restore: un-flash joined children after 200 ms
+  if(joinFlashObjs.length>0&&performance.now()>=joinFlashEnd){
+    for(const {mesh,emissive} of joinFlashObjs){
+      mesh.material.emissive.copy(emissive);
+      mesh.material.emissiveIntensity=mesh.userData.baseEI;
+    }
+    joinFlashObjs=[];
   }
 
   const t0=performance.now();
