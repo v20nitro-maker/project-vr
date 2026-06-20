@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Iron Hand AR</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000008">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -237,6 +240,17 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 }
 #camera-flip-btn:hover { background: rgba(160,80,255,0.18); border-color: rgba(200,100,255,0.7); }
 
+/* ── PWA install button ───────────────────────────────────────────────────────── */
+#install-btn {
+  position: fixed; top: 16px; left: 110px; z-index: 12;
+  height: 36px; display: none; align-items: center; justify-content: center;
+  padding: 0 10px;
+  font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 1px; color: rgba(210,180,255,0.9);
+  background: rgba(10,5,30,0.72); border: 1px solid rgba(160,80,255,0.45);
+  border-radius: 6px; cursor: pointer; outline: none; transition: background 0.15s, border-color 0.15s;
+}
+#install-btn:hover { background: rgba(160,80,255,0.18); border-color: rgba(200,100,255,0.7); }
+
 /* ── Record button (inside #hud-right) ───────────────────────────────────────── */
 #record-btn {
   margin-top: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
@@ -328,6 +342,9 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 <button id="hamburger" aria-label="Menu">
   <span></span><span></span><span></span>
 </button>
+
+<!-- PWA install (hidden until beforeinstallprompt fires) -->
+<button id="install-btn">⊕ INSTALL</button>
 
 <!-- Camera flip (mobile only, shown via CSS media query) -->
 <button id="camera-flip-btn" aria-label="Flip camera">⇄</button>
@@ -2005,6 +2022,25 @@ function checkOrientation(){
   if(isMobile) orientHint.style.display=window.innerHeight>window.innerWidth?'flex':'none';
 }
 checkOrientation();
+
+// ── PWA install prompt ────────────────────────────────────────────────────────
+const installBtn=document.getElementById('install-btn');
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredPrompt=e;
+  installBtn.style.display='flex';
+});
+installBtn.addEventListener('click',async()=>{
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt=null;
+  installBtn.style.display='none';
+});
+window.addEventListener('appinstalled',()=>{ installBtn.style.display='none'; });
+
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 window.addEventListener('resize',()=>{
   renderer.setSize(window.innerWidth,window.innerHeight);
