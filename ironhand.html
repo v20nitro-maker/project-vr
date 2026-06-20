@@ -121,6 +121,9 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 #clear-objs-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(255,120,120,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(255,60,60,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
 #recenter-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(80,220,255,0.88); background: rgba(0,10,25,0.52); border: 1px solid rgba(0,180,255,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
 #recenter-btn.cursor-on { color: #88eeff; background: rgba(0,160,255,0.18); border-color: rgba(0,200,255,0.7); }
+#scene-save-btn, #scene-load-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(140,255,160,0.88); background: rgba(0,15,10,0.52); border: 1px solid rgba(60,200,80,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
+#scene-save-btn.cursor-on, #scene-load-btn.cursor-on { color: #aaffbb; background: rgba(40,180,60,0.18); border-color: rgba(80,220,100,0.7); }
+#scene-toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: 2px; color: #aaffbb; background: rgba(0,20,10,0.82); border: 1px solid rgba(80,220,100,0.5); border-radius: 4px; padding: 7px 18px; pointer-events: none; display: none; z-index: 9999; }
 #clear-objs-btn:hover, #clear-objs-btn.cursor-on { color: #ff8888; background: rgba(255,60,60,0.18); border-color: rgba(255,60,60,0.6); }
 
 /* ── Object tabs (2D / 3D) ────────────────────────────────────────────────── */
@@ -375,6 +378,15 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
     </div>
   </div>
 
+  <!-- SCENE -->
+  <div class="panel-section">
+    <div class="panel-section-label">SCENE</div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <button id="scene-save-btn">SAVE SCENE</button>
+      <button id="scene-load-btn">LOAD SCENE</button>
+    </div>
+  </div>
+
   <!-- HEAD TRACKING -->
   <div class="panel-section">
     <div class="panel-section-label">HEAD TRACK</div>
@@ -428,6 +440,7 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 <div id="save-prompt"><button id="save-btn">▼ TAP TO SAVE VIDEO</button></div>
 <div id="orient-hint"><div id="orient-msg">↻ ROTATE TO LANDSCAPE</div></div>
 <div id="extrude-depth-hud"></div>
+<div id="scene-toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
@@ -766,9 +779,9 @@ function makeCircleShape(){const s=new THREE.Shape(),r=0.44,n=48;s.moveTo(r,0);f
 function makeSquareShape(){const h=0.39,s=new THREE.Shape();s.moveTo(-h,-h);s.lineTo(h,-h);s.lineTo(h,h);s.lineTo(-h,h);s.closePath();return s;}
 function makePentagonShape(){const s=new THREE.Shape(),r=0.44,n=5;s.moveTo(r,0);for(let i=1;i<n;i++){const a=i*Math.PI*2/n;s.lineTo(Math.cos(a)*r,Math.sin(a)*r);}s.closePath();return s;}
 
-function spawnObject(shapeType,pos){
+function spawnObject(shapeType,pos,hue){
   if(objects.length>=MAX_OBJECTS){const old=objects.shift();disposeOrbitRing(old);scene.remove(old);old.geometry.dispose();old.material.dispose();}
-  const hue=Math.random();
+  if(hue==null) hue=Math.random();
   const col=new THREE.Color().setHSL(hue,0.88,0.55);
   const emi=new THREE.Color().setHSL(hue,1.0,0.20);
   const is3D=shapeType.endsWith('3d');
@@ -791,6 +804,8 @@ function spawnObject(shapeType,pos){
   mesh.position.copy(pos||new THREE.Vector3(rand(-3,3),rand(-2,2),0));
   if(is3D) mesh.rotation.set(rand(0.2,0.9),rand(0,Math.PI*2),0);
   mesh.userData.baseEI=0.55;
+  mesh.userData.shapeType=shapeType;
+  mesh.userData.hue=hue;
   mesh.userData.sourceShape=srcShape;
   scene.add(mesh); objects.push(mesh);
   return mesh;
@@ -1136,7 +1151,7 @@ document.querySelectorAll('.obj-tab').forEach(tab=>{
 });
 
 // ── FIX 5: Dwell-based hover system ──────────────────────────────────────────
-const ALL_UI_BTNS=document.querySelectorAll('.mode-btn,.hb,#clear-btn,#clear-objs-btn,.obj-tab,#recenter-btn');
+const ALL_UI_BTNS=document.querySelectorAll('.mode-btn,.hb,#clear-btn,#clear-objs-btn,.obj-tab,#recenter-btn,#scene-save-btn,#scene-load-btn');
 const trayItems  =document.querySelectorAll('.tray-item');
 
 function drawDwellRing(cx,cy,progress){
@@ -1268,6 +1283,45 @@ function clearObjects(){
   if(joinLineMesh) joinLineMesh.visible=false;
 }
 
+// ── Scene persistence ─────────────────────────────────────────────────────────
+const sceneToast=document.getElementById('scene-toast');
+let toastTimer=0;
+function showToast(msg){
+  sceneToast.textContent=msg;
+  sceneToast.style.display='block';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ sceneToast.style.display='none'; },1000);
+}
+function serializeScene(){
+  return JSON.stringify(
+    objects.filter(o=>!o.isGroup).map(o=>({
+      shapeType:o.userData.shapeType,
+      x:o.position.x, y:o.position.y, z:o.position.z,
+      rx:o.rotation.x, ry:o.rotation.y, rz:o.rotation.z,
+      scale:o.scale.x,
+      hue:o.userData.hue,
+      locked:!!o.userData.locked
+    }))
+  );
+}
+function saveScene(slot){
+  localStorage.setItem('ironhand_'+slot,serializeScene());
+  showToast('SCENE SAVED');
+}
+function loadScene(slot){
+  const data=localStorage.getItem('ironhand_'+slot);
+  if(!data) return;
+  clearObjects();
+  JSON.parse(data).forEach(d=>{
+    const obj=spawnObject(d.shapeType,new THREE.Vector3(d.x,d.y,d.z),d.hue);
+    if(!obj) return;
+    obj.rotation.set(d.rx,d.ry,d.rz);
+    obj.scale.setScalar(d.scale);
+    if(d.locked) lockObject(obj);
+  });
+  showToast('SCENE LOADED');
+}
+
 // Count extended (non-thumb) fingers: tip clearly farther from wrist than its knuckle.
 // Orientation-independent, so it works at any hand angle. 4 = open palm, 0 = fist.
 function fingersExtended(lms){
@@ -1281,6 +1335,8 @@ function fingersExtended(lms){
 document.getElementById('clear-btn').addEventListener('click',clearInk);
 document.getElementById('clear-objs-btn').addEventListener('click',clearObjects);
 document.getElementById('recenter-btn').addEventListener('click',()=>{ baseAlpha=null; baseBeta=null; camYaw=0; camPitch=0; });
+document.getElementById('scene-save-btn').addEventListener('click',()=>saveScene('default'));
+document.getElementById('scene-load-btn').addEventListener('click',()=>loadScene('default'));
 
 // ── MediaPipe ─────────────────────────────────────────────────────────────────
 const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`});
