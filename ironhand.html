@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iron Hand AR</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
+
+/* ── Start screen ─────────────────────────────────────────────────────────── */
+#start-screen {
+  position: fixed; inset: 0; z-index: 100;
+  background: #000008; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; transition: opacity 0.65s ease;
+}
+#start-screen.fade-out { opacity: 0; pointer-events: none; }
+#start-screen::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px,
+    rgba(160,80,255,0.022) 3px, rgba(160,80,255,0.022) 4px);
+}
+#start-frame { position: absolute; inset: 22px; border: 1px solid rgba(160,80,255,0.16); pointer-events: none; }
+#start-frame::before, #start-frame::after, #start-frame > span::before, #start-frame > span::after {
+  content: ''; position: absolute; width: 20px; height: 20px;
+  border-color: rgba(180,80,255,0.7); border-style: solid;
+}
+#start-frame::before  { top:-1px; left:-1px;   border-width: 2px 0 0 2px; }
+#start-frame::after   { top:-1px; right:-1px;  border-width: 2px 2px 0 0; }
+#start-frame > span::before { bottom:-1px; left:-1px;  border-width: 0 0 2px 2px; }
+#start-frame > span::after  { bottom:-1px; right:-1px; border-width: 0 2px 2px 0; }
+#start-inner { text-align: center; z-index: 1; padding: 20px; }
+#start-tag { font-family: 'Orbitron', monospace; font-size: 10px; color: rgba(180,100,255,0.45); letter-spacing: 0.5em; margin-bottom: 18px; }
+#start-title {
+  font-family: 'Orbitron', monospace; font-size: clamp(56px,12vw,108px); font-weight: 900; color: #fff;
+  letter-spacing: 0.1em; line-height: 1; margin-bottom: 10px;
+  text-shadow: 0 0 16px rgba(190,80,255,1), 0 0 50px rgba(150,40,230,0.8), 0 0 110px rgba(110,20,190,0.45);
+}
+#start-sub { font-family: 'Orbitron', monospace; font-size: clamp(8px,1.6vw,13px); color: rgba(195,155,255,0.45); letter-spacing: 0.42em; margin-bottom: 68px; }
+#start-btn {
+  font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; color: #cc77ff;
+  background: rgba(160,55,255,0.07); border: 1px solid rgba(170,80,255,0.5);
+  padding: 12px 44px; letter-spacing: 0.22em; cursor: pointer; outline: none; position: relative;
+  transition: background 0.18s, box-shadow 0.18s, color 0.18s;
+}
+#start-btn::before { content: ''; position: absolute; inset: -5px; border: 1px solid rgba(160,80,255,0.14); }
+#start-btn:hover { background: rgba(160,55,255,0.17); color: #dd99ff; box-shadow: 0 0 22px rgba(180,80,255,0.3); }
+#start-err { font-family: 'Orbitron', monospace; font-size: 10px; color: rgba(255,70,70,0.85); letter-spacing: 0.12em; margin-top: 20px; display: none; }
+
+/* ── Layers ───────────────────────────────────────────────────────────────── */
+#video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 0; }
+#three-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+#draw-canvas  { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+#preview { position: fixed; bottom: 10px; right: 10px; width: 160px; height: 120px; z-index: 5; border: 1px solid rgba(0,255,68,0.38); border-radius: 2px; }
+
+/* ── HUD ──────────────────────────────────────────────────────────────────── */
+#score { position: fixed; top: 16px; left: 20px; font-family: 'Orbitron', monospace; font-size: 34px; font-weight: 700; color: #fff; z-index: 6; letter-spacing: 3px; text-shadow: 0 0 10px rgba(180,80,255,0.9), 0 0 28px rgba(140,40,220,0.5); }
+#hud-right { position: fixed; top: 16px; right: 20px; z-index: 6; text-align: right; }
+#level { font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 2px; text-shadow: 0 0 10px rgba(180,80,255,0.9), 0 0 22px rgba(140,40,220,0.5); }
+#stats { margin-top: 8px; font-family: 'Orbitron', monospace; font-size: 9px; background: rgba(0,0,0,0.38); padding: 6px 10px; border-radius: 4px; border: 1px solid rgba(160,80,255,0.2); }
+.sr { display: flex; justify-content: space-between; gap: 12px; line-height: 2; }
+.sr .sl { opacity: 0.5; }
+#sr-fps { color: #44ff88; } #sr-mp { color: #38ccff; } #sr-3js { color: #ffaa33; }
+.hb { font-family: 'Orbitron', monospace; font-size: 8px; padding: 3px 7px; color: rgba(210,180,255,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(160,80,255,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; }
+.hb.active { color: #ee99ff; background: rgba(160,80,255,0.22); border-color: rgba(200,100,255,0.7); }
+.hb.cursor-on { color: #fff; background: rgba(160,80,255,0.32); border-color: rgba(230,140,255,0.9); }
+
+/* ── Hamburger button ─────────────────────────────────────────────────────── */
+#hamburger {
+  position: fixed; top: 16px; left: 20px; z-index: 12;
+  width: 36px; height: 36px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 5px;
+  background: rgba(10,5,30,0.62); border: 1px solid rgba(160,80,255,0.38);
+  border-radius: 4px; cursor: pointer; padding: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+#hamburger:hover { background: rgba(160,80,255,0.18); border-color: rgba(200,100,255,0.7); }
+#hamburger span {
+  display: block; width: 16px; height: 2px;
+  background: rgba(210,180,255,0.88); border-radius: 1px;
+  transition: transform 0.22s, opacity 0.22s;
+}
+#hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+#hamburger.open span:nth-child(2) { opacity: 0; }
+#hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* ── Side panel ───────────────────────────────────────────────────────────── */
+#side-panel {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 11;
+  width: 220px; background: rgba(4,2,18,0.93);
+  border-right: 1px solid rgba(160,80,255,0.22);
+  box-shadow: 4px 0 24px rgba(80,20,160,0.22);
+  transform: translateX(-100%); transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden;
+  padding-bottom: 16px;
+}
+#side-panel.open { transform: translateX(0); }
+#panel-header {
+  padding: 56px 16px 12px;
+  font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 0.4em;
+  color: rgba(160,100,255,0.45); border-bottom: 1px solid rgba(160,80,255,0.12);
+  margin-bottom: 4px;
+}
+
+/* ── Panel sections ───────────────────────────────────────────────────────── */
+.panel-section { padding: 10px 14px 6px; }
+.panel-section-label {
+  font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 0.35em;
+  color: rgba(160,100,255,0.4); margin-bottom: 7px; padding-bottom: 4px;
+  border-bottom: 1px solid rgba(160,80,255,0.1);
+}
+
+/* ── Mode buttons (inside panel) ─────────────────────────────────────────── */
+#mode-bar { display: flex; flex-direction: column; gap: 4px; }
+.mode-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(210,180,255,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(160,80,255,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
+.mode-btn.active { color: #ee99ff; background: rgba(160,80,255,0.22); border-color: rgba(200,100,255,0.7); box-shadow: 0 0 8px rgba(180,80,255,0.25); }
+.mode-btn.cursor-on { color: #fff; background: rgba(160,80,255,0.32); border-color: rgba(230,140,255,0.9); }
+#clear-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(255,175,110,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(255,120,60,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
+#clear-btn:hover, #clear-btn.cursor-on { color: #ffbb77; background: rgba(255,120,60,0.18); border-color: rgba(255,120,60,0.6); }
+#clear-objs-btn { font-family: 'Orbitron', monospace; font-size: 9px; padding: 6px 14px; text-align: left; color: rgba(255,120,120,0.88); background: rgba(10,5,30,0.52); border: 1px solid rgba(255,60,60,0.28); cursor: pointer; letter-spacing: 1px; outline: none; transition: all 0.15s; border-radius: 3px; width: 100%; }
+#clear-objs-btn:hover, #clear-objs-btn.cursor-on { color: #ff8888; background: rgba(255,60,60,0.18); border-color: rgba(255,60,60,0.6); }
+
+/* ── Object tabs (2D / 3D) ────────────────────────────────────────────────── */
+#obj-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.obj-tab {
+  flex: 1; font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 0.2em;
+  padding: 5px 0; text-align: center; cursor: pointer; outline: none;
+  color: rgba(180,150,255,0.6); background: rgba(10,5,30,0.4);
+  border: 1px solid rgba(160,80,255,0.2); border-radius: 3px; transition: all 0.15s;
+}
+.obj-tab.active { color: #ee99ff; background: rgba(160,80,255,0.22); border-color: rgba(200,100,255,0.7); }
+
+/* ── Panel tray grid ──────────────────────────────────────────────────────── */
+#panel-tray-2d, #panel-tray-3d { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+#panel-tray-3d { display: none; }
+.tray-item {
+  width: auto; height: 54px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  border: 1px solid rgba(160,80,255,0.18); border-radius: 5px; cursor: pointer;
+  background: rgba(160,80,255,0.04); transition: all 0.15s; user-select: none; position: relative;
+}
+.tray-icon { font-size: 20px; color: rgba(215,185,255,0.94); line-height: 1; }
+.tray-name { font-family: 'Orbitron', monospace; font-size: 6px; color: rgba(190,155,255,0.88); letter-spacing: 0.3px; }
+.tray-item:hover, .tray-item.cursor-on { background: rgba(160,80,255,0.2); border-color: rgba(200,100,255,0.65); box-shadow: 0 0 12px rgba(180,80,255,0.32); }
+.tray-item:hover .tray-icon, .tray-item.cursor-on .tray-icon { color: #fff; }
+.tray-item.being-dragged { opacity: 0.45; border-color: rgba(100,255,180,0.5); }
+
+/* ── Panel sliders ────────────────────────────────────────────────────────── */
+.panel-slider-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 1px;
+}
+.panel-slider-row.sens { color: rgba(180,150,255,0.7); }
+.panel-slider-row.rot  { color: rgba(255,180,120,0.75); }
+.panel-slider-row input[type=range] { flex: 1; height: 2px; cursor: pointer; vertical-align: middle; }
+.panel-slider-row.sens input { accent-color: #9944ff; }
+.panel-slider-row.rot  input { accent-color: #ff6622; }
+.panel-slider-row .slider-val { min-width: 26px; text-align: right; }
+#sens-val { color: rgba(210,170,255,0.92); }
+#rot-val  { color: rgba(255,190,130,0.92); }
+
+/* ── Hand filter inside panel ─────────────────────────────────────────────── */
+#hand-bar-panel { display: flex; align-items: center; gap: 4px; }
+#hand-label-panel { font-family: 'Orbitron', monospace; font-size: 8px; color: rgba(180,140,255,0.55); letter-spacing: 1px; margin-right: 2px; }
+
+/* ── Axis indicator (Fix 2) ───────────────────────────────────────────────── */
+#axis-indicator {
+  position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+  z-index: 6; font-family: 'Orbitron', monospace; font-size: 10px;
+  color: rgba(255,160,80,0.9); letter-spacing: 0.35em; display: none;
+  background: rgba(0,0,0,0.3); padding: 3px 10px; border-radius: 10px;
+}
+
+/* ── Dwell ring canvas (Fix 5) ────────────────────────────────────────────── */
+#dwell-canvas {
+  position: fixed; z-index: 8; pointer-events: none; display: none;
+  transform: translate(-50%,-50%);
+}
+
+/* ── Scale hint (Fix 6) ───────────────────────────────────────────────────── */
+#scale-hint {
+  position: fixed; z-index: 6; font-family: 'Orbitron', monospace;
+  font-size: 9px; color: rgba(255,200,100,0.92); letter-spacing: 0.25em;
+  transform: translate(-50%,-50%); display: none; pointer-events: none;
+}
+
+/* ── Depth (Z) bar (part 5) ───────────────────────────────────────────────── */
+#depth-bar {
+  position: fixed; left: 8px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 120px; z-index: 6; border-radius: 2px;
+  background: rgba(255,255,255,0.08); overflow: hidden; pointer-events: none;
+}
+#depth-fill {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 50%;
+  background: linear-gradient(to top, #8844ff, #22ddff); /* purple = back/−Z, cyan = front/+Z */
+  transition: height 0.05s linear;
+}
+#depth-label {
+  position: fixed; left: 4px; top: calc(50% - 76px); z-index: 6; pointer-events: none;
+  font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 1px;
+  color: rgba(170,200,255,0.6);
+}
+
+/* slider-val kept for JS refs — values are now in panel-slider-row */
+.slider-val { min-width: 28px; text-align: right; }
+
+/* ── Match popup ──────────────────────────────────────────────────────────── */
+#match-popup { position: fixed; z-index: 20; display: none; background: rgba(0,0,10,0.93); border: 1px solid rgba(180,80,255,0.55); padding: 18px 24px; border-radius: 6px; text-align: center; min-width: 220px; transform: translate(-50%,-50%); box-shadow: 0 0 36px rgba(160,80,255,0.25); }
+#match-label { font-family: 'Orbitron', monospace; font-size: 11px; color: rgba(210,170,255,0.95); letter-spacing: 0.2em; margin-bottom: 16px; }
+#match-btns { display: flex; gap: 10px; justify-content: center; }
+.match-btn { font-family: 'Orbitron', monospace; font-size: 10px; padding: 7px 18px; cursor: pointer; letter-spacing: 0.15em; border-radius: 3px; outline: none; transition: all 0.15s; }
+#btn-replace { color: #44ff88; background: rgba(50,200,80,0.08); border: 1px solid rgba(50,200,80,0.42); }
+#btn-replace:hover { background: rgba(50,200,80,0.22); }
+#btn-reject  { color: #ff6644; background: rgba(200,80,50,0.08); border: 1px solid rgba(200,80,50,0.42); }
+#btn-reject:hover  { background: rgba(200,80,50,0.22); }
+/* selected-by-wave glow */
+#btn-replace.sel { background: rgba(50,220,90,0.4); border-color:#7dffae; color:#fff; box-shadow: 0 0 18px rgba(70,255,140,0.9), inset 0 0 10px rgba(70,255,140,0.5); }
+#btn-reject.sel  { background: rgba(230,90,60,0.4); border-color:#ff9a7d; color:#fff; box-shadow: 0 0 18px rgba(255,90,60,0.9), inset 0 0 10px rgba(255,90,60,0.5); }
+#match-hint { font-family:'Orbitron',monospace; font-size:8px; color:rgba(190,160,255,0.6); letter-spacing:0.12em; margin-top:12px; }
+
+/* ── Draw indicator ───────────────────────────────────────────────────────── */
+#draw-indicator { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 6; font-family: 'Orbitron', monospace; font-size: 10px; color: rgba(34,255,200,0.85); letter-spacing: 0.3em; display: none; }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+  <div id="start-frame"><span></span></div>
+  <div id="start-inner">
+    <div id="start-tag">// AR SYSTEM v2.3 //</div>
+    <div id="start-title">IRON HAND</div>
+    <div id="start-sub">GESTURE INTERACTION SYSTEM</div>
+    <button id="start-btn">INITIALIZE CAMERA</button>
+    <div id="start-err">CAMERA ACCESS DENIED — CHECK PERMISSIONS</div>
+  </div>
+</div>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="three-canvas"></canvas>
+<canvas id="draw-canvas"></canvas>
+<canvas id="preview"></canvas>
+
+<!-- Gesture UI overlays -->
+<canvas id="dwell-canvas" width="52" height="52"></canvas>  <!-- Fix 5 -->
+<div id="axis-indicator"></div>                             <!-- Fix 2 -->
+<div id="scale-hint">SCALE</div>                            <!-- Fix 6 -->
+<div id="depth-label">Z</div>                               <!-- depth (part 5) -->
+<div id="depth-bar"><div id="depth-fill"></div></div>
+
+<!-- Hamburger -->
+<button id="hamburger" aria-label="Menu">
+  <span></span><span></span><span></span>
+</button>
+
+<!-- Side panel -->
+<div id="side-panel">
+  <div id="panel-header">// IRON HAND //</div>
+
+  <!-- MODE -->
+  <div class="panel-section">
+    <div class="panel-section-label">MODE</div>
+    <div id="mode-bar">
+      <button class="mode-btn active" data-mode="interact">INTERACT</button>
+      <button class="mode-btn" data-mode="rotate">ROTATE</button>
+      <button class="mode-btn" data-mode="draw">DRAW</button>
+    </div>
+  </div>
+
+  <!-- OBJECTS -->
+  <div class="panel-section">
+    <div class="panel-section-label">OBJECTS</div>
+    <div id="obj-tabs">
+      <button class="obj-tab active" data-tab="2d">2D</button>
+      <button class="obj-tab" data-tab="3d">3D</button>
+    </div>
+    <div id="panel-tray-2d">
+      <div class="tray-item" data-shape="circle2d"><div class="tray-icon">○</div><div class="tray-name">CIRCLE</div></div>
+      <div class="tray-item" data-shape="square2d"><div class="tray-icon">▢</div><div class="tray-name">SQUARE</div></div>
+      <div class="tray-item" data-shape="triangle2d"><div class="tray-icon">△</div><div class="tray-name">TRI</div></div>
+      <div class="tray-item" data-shape="star2d"><div class="tray-icon">★</div><div class="tray-name">STAR</div></div>
+      <div class="tray-item" data-shape="pentagon2d"><div class="tray-icon">⬠</div><div class="tray-name">PENTA</div></div>
+    </div>
+    <div id="panel-tray-3d">
+      <div class="tray-item" data-shape="sphere3d"><div class="tray-icon">⬤</div><div class="tray-name">SPHERE</div></div>
+      <div class="tray-item" data-shape="box3d"><div class="tray-icon">⬛</div><div class="tray-name">CUBE</div></div>
+      <div class="tray-item" data-shape="cylinder3d"><div class="tray-icon">⬡</div><div class="tray-name">CYL</div></div>
+      <div class="tray-item" data-shape="cone3d"><div class="tray-icon">▲</div><div class="tray-name">CONE</div></div>
+      <div class="tray-item" data-shape="torus3d"><div class="tray-icon">◎</div><div class="tray-name">TORUS</div></div>
+    </div>
+  </div>
+
+  <!-- CLEAR -->
+  <div class="panel-section">
+    <div class="panel-section-label">CLEAR</div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <button id="clear-btn">CLEAR INK</button>
+      <button id="clear-objs-btn">CLEAR OBJS</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="panel-section">
+    <div class="panel-section-label">SETTINGS</div>
+    <div class="panel-slider-row sens">
+      <span>SENS</span>
+      <input type="range" id="sens-slider" min="0.5" max="3" step="0.05" value="1.4">
+      <span id="sens-val" class="slider-val">1.4</span>
+    </div>
+    <div class="panel-slider-row rot">
+      <span>ROT</span>
+      <input type="range" id="rot-slider" min="0.3" max="8" step="0.1" value="2.8">
+      <span id="rot-val" class="slider-val">2.8</span>
+    </div>
+    <div id="hand-bar-panel">
+      <span id="hand-label-panel">HAND</span>
+      <button class="hb active" data-hand="Both">ALL</button>
+      <button class="hb" data-hand="Left">L</button>
+      <button class="hb" data-hand="Right">R</button>
+    </div>
+  </div>
+</div>
+
+<!-- HUD (top-right stats only — hand filter moved to panel) -->
+<div id="hud-right">
+  <div id="stats">
+    <div class="sr" id="sr-fps"><span class="sl">FPS</span><span id="v-fps">--</span></div>
+    <div class="sr" id="sr-mp"><span class="sl">MP</span><span id="v-mp">--</span></div>
+    <div class="sr" id="sr-3js"><span class="sl">3JS</span><span id="v-3js">--</span></div>
+  </div>
+</div>
+
+<div id="draw-indicator">✦ DRAW MODE — PINCH TO INK</div>
+
+<div id="match-popup">
+  <div id="match-label">SHAPE DETECTED</div>
+  <div id="match-btns">
+    <button class="match-btn" id="btn-replace">REPLACE</button>
+    <button class="match-btn" id="btn-reject">REJECT</button>
+  </div>
+  <div id="match-hint">✋ WAVE LEFT = REPLACE&nbsp;&nbsp;·&nbsp;&nbsp;WAVE RIGHT = REJECT</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+
+<script>
+'use strict';
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const startScreen    = document.getElementById('start-screen');
+const startBtn       = document.getElementById('start-btn');
+const startErr       = document.getElementById('start-err');
+const video          = document.getElementById('video');
+const sensSlider     = document.getElementById('sens-slider');
+const sensValEl      = document.getElementById('sens-val');
+const rotSlider      = document.getElementById('rot-slider');
+const rotValEl       = document.getElementById('rot-val');
+const vFps           = document.getElementById('v-fps');
+const vMp            = document.getElementById('v-mp');
+const v3js           = document.getElementById('v-3js');
+const drawIndicator  = document.getElementById('draw-indicator');
+const matchPopup     = document.getElementById('match-popup');
+const matchLabel     = document.getElementById('match-label');
+const btnReplace     = document.getElementById('btn-replace');
+const btnReject      = document.getElementById('btn-reject');
+const matchHint      = document.getElementById('match-hint');
+let popupSelecting   = false;          // guards the wave-select glow->act window
+let popupWaveCooldown= 0;
+let popupPalmStart   = 0;              // when palm was first held over the popup (0 = not holding)
+let popupArmed       = false;          // wave-select enabled only after a 1s palm hold
+const POPUP_ARM_MS     = 1000;         // palm must be shown 1s before wave selection works
+const POPUP_WAVE_SPEED = 3.0;          // units/sec horizontal wave to pick
+const axisIndicator  = document.getElementById('axis-indicator');  // Fix 2
+const scaleHint      = document.getElementById('scale-hint');      // Fix 6
+const dwellCanvas    = document.getElementById('dwell-canvas');    // Fix 5
+const dwellCtx       = dwellCanvas.getContext('2d');
+const depthFill      = document.getElementById('depth-fill');       // part 5: depth bar fill
+
+// ── Core state ────────────────────────────────────────────────────────────────
+let sens       = 1.4;
+let rotSens    = 2.8;
+let mode       = 'interact';
+let handFilter = 'Both';
+let landmarks  = null;
+let detecting  = false;
+let indexPinching   = false;          // index+thumb pinch (select / grab / rotate-in-ROTATE-mode)
+let midPinching= false;          // middle+thumb pinch (rotate while NOT in ROTATE mode)
+
+// Drawing state
+let isDrawing = false;
+const DRAW_DEADZONE = 2.5; // px in screen space before a new ink segment commits
+
+// ── FIX 1: single cursor pipeline — pointer maps 1:1 to landmark[8] (de-jitter only)
+const SMOOTH_N   = 6;               // moving-average window
+const bufX = new Float32Array(SMOOTH_N);
+const bufY = new Float32Array(SMOOTH_N);
+let bufCount = 0, bufHead = 0;
+let cnx = null, cny = null;         // committed cursor position, normalized (pre-mirror)
+let curSX = 0, curSY = 0;           // committed cursor position, screen px (THE source of truth)
+const STATIC_DEADZONE = 0.008;      // normalized — below this the cursor does not move at all
+
+// ── PRECISION FIX 4: pinch detection (hand-size normalized + hysteresis)
+const PINCH_START = 0.18;           // ratio: fingers nearly touching to start
+const PINCH_END   = 0.24;           // ratio: must separate more than start to release
+// Middle-finger pinch (thumb↔middle) = ROTATE — same hysteresis style, its own thresholds
+const MID_PINCH_START = 0.18;       // ratio: thumb↔middle nearly touching to start
+const MID_PINCH_END   = 0.24;       // ratio: must separate more than start to release
+
+// Rotation smoothing
+let smoothRotX = 0, smoothRotY = 0;
+let lastPinchAngle = 0;
+
+// ── PRECISION FIX 3: strict axis lock
+let axisLock = null;                // null | 'X' | 'Y' | 'FREE'
+let axisFrameCount = 0;
+let axisTotalDX = 0, axisTotalDY = 0;
+let axisHideAt   = 0;               // timestamp to hide the lock indicator (300ms after release)
+const AXIS_LOCK_THRESHOLD = 0.008;  // units/frame to even consider an axis
+const AXIS_FREE_DEADZONE  = 0.012;  // units/frame per-axis when FREE
+const AXIS_LOCK_FRAMES    = 6;      // frames of data before committing a lock (was 10 — too slow; finger had already changed direction before lock)
+const AXIS_LOCK_RATIO     = 2.5;    // dominance ratio to lock to one axis
+
+// Scale state
+let selectedObj   = null;
+let isScaling     = false;
+let scaleInitDist = 1, scaleInitVal = 1;
+const RESIZE_GRAB_R = 0.28;
+
+// ── FIX 2: velocity vector over a SHORT 3-frame window (stable direction + speed), world units/sec.
+// The cursor moving-average (SMOOTH_N=6) already de-jitters position, so a short velocity window
+// keeps direction pointing where the finger is GOING, not where it WAS. Cursor smoothing (6-frame)
+// and velocity (3-frame) are deliberately separate pipelines.
+const posHistory = [];
+const VELOCITY_LEN = 3;        // frames kept for velocity/direction (was HISTORY_LEN=5 — too laggy for direction)
+let velX = 0, velY = 0, moveSpeed = 0, moveAngle = 0, moving = false;
+const MIN_SPEED   = 0.18;       // units/sec — below this direction is undefined (was 0.4; 0.18 catches slow deliberate motion)
+let prevHadLandmarks = false;
+let grabStartTime = 0;
+const WAVE_SPEED  = 8.0;        // units/sec — deliberate swipe to delete (was per-frame 0.18)
+const MIN_HOLD_MS = 300;
+let waveFrameCount = 0;         // must sustain 3 frames
+
+// Delete animation pool
+const deletingObjects = [];
+
+// Tray drag state
+let draggingTrayItem = null;
+
+// FIX 5: Dwell-based UI
+let dwellTarget    = null;      // currently hovered element
+let dwellStartTime = 0;
+const DWELL_MS     = 600;
+// Cooldown after a successful dwell-select so resting on the element won't re-fire
+const dwellCooldown = new Map(); // element -> timestamp until which it's locked
+const OBJ_COOLDOWN  = 1000;      // tray objects: 1s gap before re-spawn
+const BTN_COOLDOWN  = 5000;      // feature buttons (interact/rotate/draw/clear/hand): 5s
+
+sensSlider.addEventListener('input', () => { sens = parseFloat(sensSlider.value); sensValEl.textContent = sens.toFixed(1); });
+rotSlider.addEventListener('input',  () => { rotSens = parseFloat(rotSlider.value); rotValEl.textContent = rotSens.toFixed(1); });
+
+// ── Preview canvas ────────────────────────────────────────────────────────────
+const previewCanvas = document.getElementById('preview');
+previewCanvas.width = 160; previewCanvas.height = 120;
+const pctx = previewCanvas.getContext('2d');
+
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+  [13,17],[17,18],[18,19],[19,20],[0,17],
+];
+function drawPreview(lms) {
+  pctx.clearRect(0,0,160,120);
+  if (video.readyState >= 2) { pctx.save(); pctx.translate(160,0); pctx.scale(-1,1); pctx.drawImage(video,0,0,160,120); pctx.restore(); }
+  if (!lms) return;
+  pctx.strokeStyle='#00ff44'; pctx.lineWidth=1; pctx.beginPath();
+  for (const [a,b] of CONNECTIONS) { pctx.moveTo((1-lms[a].x)*160,lms[a].y*120); pctx.lineTo((1-lms[b].x)*160,lms[b].y*120); }
+  pctx.stroke();
+  pctx.fillStyle='#00ff44';
+  for (const lm of lms) { pctx.beginPath(); pctx.arc((1-lm.x)*160,lm.y*120,1.5,0,Math.PI*2); pctx.fill(); }
+}
+
+// ── Draw canvas ───────────────────────────────────────────────────────────────
+const drawCanvas = document.getElementById('draw-canvas');
+const dctx = drawCanvas.getContext('2d');
+drawCanvas.width = window.innerWidth; drawCanvas.height = window.innerHeight;
+
+let drawPoints=[],prevDX=null,prevDY=null,lastDrawTime=0;
+let pendingShape=null,pendingPts=[];
+
+// ── FIX 3: Douglas-Peucker shape recognizer ───────────────────────────────────
+function ptLineDist(p, a, b) {
+  const dx=b.x-a.x, dy=b.y-a.y;
+  if (dx===0 && dy===0) return Math.hypot(p.x-a.x,p.y-a.y);
+  const t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));
+  return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);
+}
+
+function simplify(pts, eps) {
+  if (pts.length < 3) return pts;
+  let maxD=0, idx=0;
+  const end=pts.length-1;
+  for (let i=1; i<end; i++) {
+    const d=ptLineDist(pts[i],pts[0],pts[end]);
+    if (d>maxD) { maxD=d; idx=i; }
+  }
+  if (maxD > eps) {
+    const L=simplify(pts.slice(0,idx+1),eps);
+    const R=simplify(pts.slice(idx),eps);
+    return [...L.slice(0,-1),...R];
+  }
+  return [pts[0],pts[end]];
+}
+
+function cornerAngle(a, b, c) {
+  const v1x=a.x-b.x,v1y=a.y-b.y,v2x=c.x-b.x,v2y=c.y-b.y;
+  const mag=Math.hypot(v1x,v1y)*Math.hypot(v2x,v2y)+0.001;
+  return Math.acos(Math.max(-1,Math.min(1,(v1x*v2x+v1y*v2y)/mag))) * 180/Math.PI;
+}
+
+// Resample a stroke to N points evenly spaced along its arc length.
+function resample(pts, N){
+  let total=0;
+  for(let i=1;i<pts.length;i++) total+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);
+  if(total<=0) return null;
+  const step=total/(N-1);
+  const out=[{x:pts[0].x,y:pts[0].y}];
+  let d=0, prev={x:pts[0].x,y:pts[0].y}, i=1;
+  while(i<pts.length && out.length<N){
+    const seg=Math.hypot(pts[i].x-prev.x,pts[i].y-prev.y);
+    if(d+seg>=step && seg>0){
+      const t=(step-d)/seg;
+      prev={x:prev.x+(pts[i].x-prev.x)*t, y:prev.y+(pts[i].y-prev.y)*t};
+      out.push(prev); d=0;
+    } else { d+=seg; prev={x:pts[i].x,y:pts[i].y}; i++; }
+  }
+  while(out.length<N) out.push({x:pts[pts.length-1].x,y:pts[pts.length-1].y});
+  return out;
+}
+
+// Count sharp corners on a closed resampled stroke via local turning angle.
+// Robust for hand-drawn shapes: square=4, triangle=3, pentagon=5, circle=0.
+function countCorners(rs){
+  const N=rs.length;
+  const k=Math.max(2,Math.round(N*0.09));   // small window = local angle, ignores overall curvature
+  const sharp=new Array(N);
+  for(let i=0;i<N;i++){
+    const ang=cornerAngle(rs[(i-k+N)%N], rs[i], rs[(i+k)%N]);
+    sharp[i]=ang<125;                        // interior angle < 125° = a real corner (pentagon 108° passes)
+  }
+  // count clusters of sharp points around the loop
+  let s=0; while(s<N && sharp[s]) s++;
+  if(s===N) return 0;                        // every point sharp = very wobbly → treat as round
+  let corners=0, inRun=false;
+  for(let c=0;c<N;c++){
+    const idx=(s+c)%N;
+    if(sharp[idx]){ if(!inRun){corners++;inRun=true;} } else inRun=false;
+  }
+  return corners;
+}
+
+// Recognizer: ONLY returns a shape when the stroke clearly matches a tray object,
+// otherwise null (no popup). Uses closure + corner count + circularity.
+function recognizeShape(raw) {
+  if (raw.length < 10) return null;
+  const xs=raw.map(p=>p.x),ys=raw.map(p=>p.y);
+  const bw=Math.max(...xs)-Math.min(...xs),bh=Math.max(...ys)-Math.min(...ys);
+  const span=Math.max(bw,bh);
+  if (span < 40) return null;                                   // too small
+
+  // Must be a closed-ish loop to count as a tray shape (rejects lines/scribbles)
+  const closeGap=Math.hypot(raw[0].x-raw[raw.length-1].x, raw[0].y-raw[raw.length-1].y);
+  if (closeGap > span*0.45) return null;
+
+  // Isoperimetric quotient Q = 4π·Area / Perimeter²  (1=circle, .785=square, .605=triangle)
+  let perim=closeGap;
+  for(let i=1;i<raw.length;i++) perim+=Math.hypot(raw[i].x-raw[i-1].x,raw[i].y-raw[i-1].y);
+  let area2=0;
+  for(let i=0;i<raw.length;i++){ const j=(i+1)%raw.length; area2+=raw[i].x*raw[j].y-raw[j].x*raw[i].y; }
+  const area=Math.abs(area2)/2;
+  const Q = perim>0 ? (4*Math.PI*area)/(perim*perim) : 0;
+
+  // Corner count by turning angle on a resampled loop
+  const rs=resample(raw, 48);
+  if(!rs) return null;
+  const corners=countCorners(rs);
+
+  // Classify — corner count is primary, Q resolves the round case
+  if (corners<=2)  return Q>0.62 ? {shape:'circle2d',  name:'CIRCLE'}   : null;
+  if (corners===3) return {shape:'triangle2d', name:'TRIANGLE'};
+  if (corners===4) return {shape:'square2d',   name:'SQUARE'};
+  if (corners===5) return {shape:'pentagon2d', name:'PENTAGON'};
+  if (corners>=8 && Q<0.55) return {shape:'star2d', name:'STAR'};
+  if (Q>0.70)      return {shape:'circle2d',   name:'CIRCLE'};   // many tiny segments = round
+  return null;                                                   // ambiguous → no popup
+}
+
+function finalizeDrawing() {
+  if (drawPoints.length<8) { drawPoints=[]; prevDX=prevDY=null; return; }
+  const result=recognizeShape(drawPoints);
+  if (result) {
+    const cx=drawPoints.reduce((s,p)=>s+p.x,0)/drawPoints.length;
+    const cy=drawPoints.reduce((s,p)=>s+p.y,0)/drawPoints.length;
+    pendingShape=result.shape; pendingPts=drawPoints.slice();
+    matchLabel.textContent=result.name+' DETECTED';
+    matchPopup.style.left=cx+'px'; matchPopup.style.top=cy+'px';
+    matchPopup.style.display='block';
+    btnReplace.classList.remove('sel'); btnReject.classList.remove('sel');
+    popupSelecting=false; popupPalmStart=0; popupArmed=false;
+    matchHint.textContent='✋ HOLD PALM 1s TO ENABLE WAVE SELECT';
+  }
+  drawPoints=[]; prevDX=prevDY=null;
+}
+
+function closePopup(){
+  matchPopup.style.display='none'; pendingShape=null; pendingPts=[];
+  btnReplace.classList.remove('sel'); btnReject.classList.remove('sel');
+  popupSelecting=false; popupPalmStart=0; popupArmed=false;
+}
+btnReplace.addEventListener('click',()=>{
+  if (pendingPts.length) {
+    const xs=pendingPts.map(p=>p.x),ys=pendingPts.map(p=>p.y);
+    dctx.clearRect(Math.min(...xs)-14,Math.min(...ys)-14,Math.max(...xs)-Math.min(...xs)+28,Math.max(...ys)-Math.min(...ys)+28);
+    const wp=new THREE.Vector3();
+    screenToWorld(xs.reduce((a,b)=>a+b,0)/xs.length, ys.reduce((a,b)=>a+b,0)/ys.length, wp);
+    spawnObject(pendingShape,wp);
+  }
+  closePopup();
+});
+btnReject.addEventListener('click',closePopup);
+
+// Wave-select: glow the chosen button briefly, then fire its click.
+function selectPopup(which){
+  if(popupSelecting) return;
+  popupSelecting=true;
+  const btn = which==='replace'?btnReplace:btnReject;
+  btn.classList.add('sel');
+  setTimeout(()=>{ btn.click(); }, 360); // glow shows, then act (click runs closePopup)
+}
+
+// ── Three.js ──────────────────────────────────────────────────────────────────
+const threeCanvas=document.getElementById('three-canvas');
+const renderer=new THREE.WebGLRenderer({canvas:threeCanvas,alpha:true,antialias:false});
+renderer.setPixelRatio(1); renderer.setClearColor(0x000000,0);
+renderer.toneMapping=THREE.NoToneMapping;
+renderer.setSize(window.innerWidth,window.innerHeight);
+
+const scene=new THREE.Scene(); scene.fog=null;
+const cam=new THREE.PerspectiveCamera(60,window.innerWidth/window.innerHeight,0.01,100);
+cam.position.z=6;
+scene.add(new THREE.AmbientLight(0xffffff,0.5));
+const dirLight=new THREE.DirectionalLight(0xffffff,0.85);
+dirLight.position.set(5,8,5); scene.add(dirLight);
+
+function rand(a,b){return a+Math.random()*(b-a);}
+
+// ── Objects ───────────────────────────────────────────────────────────────────
+const objects=[]; const MAX_OBJECTS=24;
+
+function makeStarShape(){const s=new THREE.Shape();for(let i=0;i<10;i++){const r=i%2===0?0.46:0.20,a=(i*Math.PI/5)-Math.PI/2;i===0?s.moveTo(Math.cos(a)*r,Math.sin(a)*r):s.lineTo(Math.cos(a)*r,Math.sin(a)*r);}s.closePath();return s;}
+function makeTriShape(){const s=new THREE.Shape();s.moveTo(0,0.5);s.lineTo(-0.43,-0.25);s.lineTo(0.43,-0.25);s.closePath();return s;}
+
+function spawnObject(shapeType,pos){
+  if(objects.length>=MAX_OBJECTS){const old=objects.shift();disposeOrbitRing(old);scene.remove(old);old.geometry.dispose();old.material.dispose();}
+  const hue=Math.random();
+  const col=new THREE.Color().setHSL(hue,0.88,0.55);
+  const emi=new THREE.Color().setHSL(hue,1.0,0.20);
+  const is3D=shapeType.endsWith('3d');
+  let geo;
+  switch(shapeType){
+    case 'circle2d':  geo=new THREE.CircleGeometry(0.44,48);break;
+    case 'square2d':  geo=new THREE.PlaneGeometry(0.78,0.78);break;
+    case 'triangle2d':geo=new THREE.ShapeGeometry(makeTriShape());break;
+    case 'star2d':    geo=new THREE.ShapeGeometry(makeStarShape());break;
+    case 'pentagon2d':geo=new THREE.CircleGeometry(0.44,5);break;
+    case 'sphere3d':  geo=new THREE.SphereGeometry(0.38,20,20);break;
+    case 'box3d':     geo=new THREE.BoxGeometry(0.68,0.68,0.68);break;
+    case 'cylinder3d':geo=new THREE.CylinderGeometry(0.28,0.28,0.68,20);break;
+    case 'cone3d':    geo=new THREE.ConeGeometry(0.38,0.78,20);break;
+    case 'torus3d':   geo=new THREE.TorusGeometry(0.33,0.11,12,36);break;
+    default:return null;
+  }
+  const mat=new THREE.MeshStandardMaterial({color:col,emissive:emi,emissiveIntensity:0.55,roughness:is3D?0.24:0.80,metalness:is3D?0.62:0.0,transparent:true,opacity:0.93,side:is3D?THREE.FrontSide:THREE.DoubleSide});
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.position.copy(pos||new THREE.Vector3(rand(-3,3),rand(-2,2),0));
+  if(is3D) mesh.rotation.set(rand(0.2,0.9),rand(0,Math.PI*2),0);
+  mesh.userData.baseEI=0.55;
+  scene.add(mesh); objects.push(mesh);
+  return mesh;
+}
+
+// ── Cursor ────────────────────────────────────────────────────────────────────
+const cursorMat=new THREE.MeshStandardMaterial({color:0xaa44ff,emissive:0x7700cc,emissiveIntensity:1.6,transparent:true,opacity:0.92,roughness:0.08,metalness:0.3});
+const cursor=new THREE.Mesh(new THREE.SphereGeometry(0.09,20,20),cursorMat);
+cursor.visible=false;
+const cLight=new THREE.PointLight(0xaa44ff,2.2,2.0);
+cursor.add(cLight); scene.add(cursor);
+
+const C_IDLE       ={col:0xaa44ff,emi:0x7700cc,lc:0xaa44ff};
+const C_PINCH      ={col:0xffcc00,emi:0xaa8800,lc:0xffcc00};
+const C_DRAW_IDLE  ={col:0x33bbaa,emi:0x006655,lc:0x33bbaa};
+const C_DRAW_ACT   ={col:0x22ffcc,emi:0x00aa77,lc:0x22ffcc};
+const C_ROTATE     ={col:0xff8833,emi:0xaa4400,lc:0xff8833};
+const C_RESIZE     ={col:0xff4444,emi:0xaa0000,lc:0xff4444};
+const C_WAVE       ={col:0xff2244,emi:0xaa0022,lc:0xff2244};
+
+// ── FIX 6: Resize handle — two arrowhead cones only, no ring/shaft ────────────
+const rhConeMat1=new THREE.MeshBasicMaterial({color:0xff8833});
+const rhConeMat2=new THREE.MeshBasicMaterial({color:0xff8833});
+const coneGeo=new THREE.ConeGeometry(0.060,0.14,6);
+
+// Cone OUT: rotated so tip points upper-right (away from object)
+// ConeGeometry points up (+Y). rotate.z = -45° rotates tip to point upper-right (+x+y)
+const rhConeOut=new THREE.Mesh(coneGeo,rhConeMat1);
+rhConeOut.rotation.z=-Math.PI/4;
+rhConeOut.position.set(0.11,0.11,0);
+
+// Cone IN: rotated 135° so tip points lower-left (toward object)
+const rhConeIn=new THREE.Mesh(coneGeo,rhConeMat2);
+rhConeIn.rotation.z=3*Math.PI/4;
+rhConeIn.position.set(-0.11,-0.11,0);
+
+const rhGroup=new THREE.Group();
+rhGroup.add(rhConeOut); rhGroup.add(rhConeIn);
+rhGroup.add(new THREE.PointLight(0xff8833,0.8,0.8));
+rhGroup.visible=false;
+scene.add(rhGroup);
+
+const _bbox=new THREE.Box3();
+
+function updateResizeHandle(cursorMidPos){
+  if (!selectedObj||mode!=='interact'){rhGroup.visible=false;scaleHint.style.display='none';return;}
+  _bbox.setFromObject(selectedObj);
+  rhGroup.position.set(_bbox.max.x+0.15,_bbox.max.y+0.15,selectedObj.position.z);
+  rhGroup.visible=true;
+
+  // FIX 6: highlight + scale hint when cursor is close
+  if (cursorMidPos){
+    const dist=xyDist(cursorMidPos,rhGroup.position);   // XY-only so cursor depth doesn't toggle the hint
+    const near=dist<0.28;
+    const col=near?0xffffff:0xff8833;
+    rhConeMat1.color.set(col); rhConeMat2.color.set(col);
+    if (near){
+      // project handle to screen for scale hint label
+      const hv=rhGroup.position.clone().project(cam);
+      scaleHint.style.left=((hv.x+1)*0.5*window.innerWidth)+'px';
+      scaleHint.style.top=((-hv.y+1)*0.5*window.innerHeight-24)+'px';
+      scaleHint.style.display='block';
+    } else {
+      scaleHint.style.display='none';
+    }
+  }
+}
+
+// ── Wave-delete animation ─────────────────────────────────────────────────────
+function startDeleteAnimation(mesh,vx,vy){
+  const speed=Math.hypot(vx,vy)+0.001;
+  mesh.userData.deleting=true;
+  mesh.material.transparent=true;
+  deletingObjects.push({mesh,slideVX:(vx/speed)*18,slideVY:(vy/speed)*18});
+}
+
+// ── SPATIAL LOCK (parts 3/4): pin an object in space, ringed by a spinning orbit halo ──
+function lockObject(obj){
+  obj.userData.locked=true;
+  obj.userData.lockedPos=obj.position.clone();                 // frozen position (re-applied every frame)
+  obj.userData.lockEmissiveHex=obj.material.emissive.getHex(); // remember to restore on unlock
+  obj.material.emissive.set(0x2244aa);                         // shift emissive to blue-white
+  obj.material.emissiveIntensity=obj.userData.baseEI;
+  if(selectedObj===obj){ selectedObj=null; rhGroup.visible=false; }  // drop resize handle: locked = no scale either
+  // thin orbit ring sized to the object; spun on Y in the per-frame locked loop
+  _bbox.setFromObject(obj);
+  const sz=_bbox.getSize(new THREE.Vector3());
+  const r=Math.max(sz.x,sz.y,0.3)*0.5+0.14;
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.018,10,48),
+    new THREE.MeshBasicMaterial({color:0x4488ff,transparent:true,opacity:0.9}));
+  ring.position.copy(obj.userData.lockedPos);
+  obj.userData.orbitRing=ring; scene.add(ring);
+}
+function disposeOrbitRing(obj){
+  const ring=obj.userData&&obj.userData.orbitRing;
+  if(ring){ scene.remove(ring); ring.geometry.dispose(); ring.material.dispose(); obj.userData.orbitRing=null; }
+}
+function unlockObject(obj){
+  obj.userData.locked=false;
+  disposeOrbitRing(obj);
+  if(obj.userData.lockEmissiveHex!=null) obj.material.emissive.setHex(obj.userData.lockEmissiveHex);
+  obj.material.emissiveIntensity=obj.userData.baseEI;            // grabbable again, normal glow
+}
+
+// ── Grab state ────────────────────────────────────────────────────────────────
+let grabbedObj=null;
+let rotatingObj=null;                    // object currently being rotated (separate from grab)
+const grabOffset=new THREE.Vector3();
+const _cur=new THREE.Vector3();          // cursor world position (x/y on z=0 plane, z = MediaPipe depth)
+
+// ── Z DEPTH + SPATIAL LOCK ──────────────────────────────────────────────────────
+let curZ = 0;                            // EMA-smoothed index-tip depth, relative to the wrist
+const DEPTH_SCALE = 20.0;                // relative depth → Three.js scene Z (then clamped to ±3)
+let lockPendingObj = null;               // object just released; a held open palm will lock it in place
+let lockPalmStart  = 0;                  // when the full-palm hold began (0 = not holding)
+let lockPendingExpire = 0;               // candidate lapses if the palm hold doesn't complete in time
+const LOCK_HOLD_MS  = 800;               // full palm must be held this long to lock
+const LOCK_GRACE_MS = 600;               // grace window after a release to begin the palm hold
+let unlockTarget = null;                 // locked object the fist is currently held over
+let unlockStart  = 0;
+const UNLOCK_HOLD_MS = 600;              // fist hold to unlock
+const UNLOCK_RANGE   = 0.3;              // cursor must be within this (XY) of the locked object
+
+// ── PRECISION: single coordinate pipeline ─────────────────────────────────────
+// Step A: dual filter (6-frame moving average -> static deadzone -> adaptive lerp).
+// User's framing: gyroscope/accelerometer-fusion analogy — average to kill noise, a
+// static deadzone so a still hand never drifts, adaptive lerp so fast motion stays responsive.
+// Operates on the already tip-extrapolated fingertip normalized coords — no sensitivity scaling.
+// Mutates cnx/cny (committed normalized cursor).
+function filterCursor(ax, ay) {
+  bufX[bufHead] = ax; bufY[bufHead] = ay;
+  bufHead = (bufHead + 1) % SMOOTH_N;
+  bufCount = Math.min(bufCount + 1, SMOOTH_N);
+  let mx = 0, my = 0;
+  for (let i = 0; i < bufCount; i++) { mx += bufX[i]; my += bufY[i]; }
+  mx /= bufCount; my /= bufCount;
+  if (cnx === null) { cnx = mx; cny = my; return; }
+  const dx = mx - cnx, dy = my - cny;
+  if (Math.abs(dx) < STATIC_DEADZONE && Math.abs(dy) < STATIC_DEADZONE) return; // static = frozen
+  const speed = Math.hypot(dx, dy);
+  const lf = Math.min(0.6, Math.max(0.1, speed * 8)); // fast=responsive, slow=stable
+  cnx += dx * lf; cny += dy * lf;
+}
+
+// Step B: SINGLE source of truth — committed normalized cursor -> screen px.
+// Landmarks are normalized to the FULL camera frame, but #video uses object-fit:cover
+// (scale + crop) and transform:scaleX(-1) (mirror). We must replay that exact transform
+// or the cursor drifts off the real fingertip wherever camera/window aspect differ.
+function cursorToScreen() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const vw = video.videoWidth  || 640;
+  const vh = video.videoHeight || 480;
+  const scale = Math.max(W / vw, H / vh);   // object-fit: cover
+  const dispW = vw * scale, dispH = vh * scale;
+  const offX = (W - dispW) / 2, offY = (H - dispH) / 2; // centered crop offsets
+  curSX = offX + (1 - cnx) * dispW;          // (1-cnx) = mirror for selfie view
+  curSY = offY + cny * dispH;
+}
+
+// ── FIX 2: velocity vector from a SHORT 3-frame position ring of the cursor world pos.
+// Short window = stable direction/speed (units/sec) that still points where the finger is heading.
+function updateVelocity(now) {
+  posHistory.push({ x: _cur.x, y: _cur.y, t: now });
+  while (posHistory.length > VELOCITY_LEN) posHistory.shift();   // keep only the last 3 entries
+  if (posHistory.length >= 2) {
+    const oldest = posHistory[0], newest = posHistory[posHistory.length - 1];
+    const hdt = (newest.t - oldest.t) / 1000;
+    if (hdt > 0) {
+      velX = (newest.x - oldest.x) / hdt;
+      velY = (newest.y - oldest.y) / hdt;
+      moveSpeed = Math.hypot(velX, velY);
+      moving = moveSpeed > MIN_SPEED;
+      if (moving) moveAngle = Math.atan2(velY, velX); // 0=right, +PI/2=down, PI=left, -PI/2=up
+      return;
+    }
+  }
+  velX = velY = 0; moveSpeed = 0; moving = false;
+}
+
+// Step D: screen px -> world on z=0 plane (true camera unprojection, so the cursor
+// sphere renders EXACTLY at curSX/curSY and drawing at curSX/curSY cannot be offset).
+const _dir = new THREE.Vector3();
+function screenToWorld(sx, sy, out) {
+  out.set((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1, 0.5);
+  out.unproject(cam);
+  _dir.copy(out).sub(cam.position).normalize();
+  const dist = -cam.position.z / _dir.z;
+  out.copy(cam.position).addScaledVector(_dir, dist);
+  return out;
+}
+
+// XY-only distance (screen plane). Proximity/selection ignores Z so depth never gates a grab.
+function xyDist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+// part 5: map cursor depth z∈[-3,+3] → fill height 0–100% (front/+ = full = cyan top).
+function updateDepthBar(z){
+  depthFill.style.height = Math.max(0, Math.min(100, ((z+3)/6)*100)) + '%';
+}
+
+// ── Hamburger + side panel ────────────────────────────────────────────────────
+const hamburger  = document.getElementById('hamburger');
+const sidePanel  = document.getElementById('side-panel');
+hamburger.addEventListener('click',()=>{
+  hamburger.classList.toggle('open');
+  sidePanel.classList.toggle('open');
+});
+
+// 2D / 3D object tabs inside panel
+document.querySelectorAll('.obj-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.obj-tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-tray-2d').style.display = tab.dataset.tab==='2d' ? 'grid' : 'none';
+    document.getElementById('panel-tray-3d').style.display = tab.dataset.tab==='3d' ? 'grid' : 'none';
+  });
+});
+
+// ── FIX 5: Dwell-based hover system ──────────────────────────────────────────
+const ALL_UI_BTNS=document.querySelectorAll('.mode-btn,.hb,#clear-btn,#clear-objs-btn,.obj-tab');
+const trayItems  =document.querySelectorAll('.tray-item');
+
+function drawDwellRing(cx,cy,progress){
+  dwellCanvas.style.display='block';
+  dwellCanvas.style.left=cx+'px';
+  dwellCanvas.style.top=cy+'px';
+  dwellCtx.clearRect(0,0,52,52);
+  // Background ring
+  dwellCtx.strokeStyle='rgba(160,80,255,0.18)';
+  dwellCtx.lineWidth=3;
+  dwellCtx.beginPath();
+  dwellCtx.arc(26,26,20,0,Math.PI*2);
+  dwellCtx.stroke();
+  // Progress arc
+  dwellCtx.strokeStyle='rgba(210,140,255,0.92)';
+  dwellCtx.lineWidth=3;
+  dwellCtx.lineCap='round';
+  dwellCtx.beginPath();
+  dwellCtx.arc(26,26,20,-Math.PI/2,-Math.PI/2+progress*Math.PI*2);
+  dwellCtx.stroke();
+}
+function hideDwellRing(){dwellCanvas.style.display='none';}
+
+// Returns {uiHit:bool, trayHit:element|null}
+// Buttons activate on DWELL (600ms continuous hover).
+// Tray activates on dwell for spawn; pinch in interact mode is handled separately for drag.
+function updateDwellHover(rawSX,rawSY,now){
+  let hoveredEl=null, hoveredRect=null, isTray=false;
+
+  ALL_UI_BTNS.forEach(btn=>{
+    const r=btn.getBoundingClientRect();
+    const over=rawSX>=r.left&&rawSX<=r.right&&rawSY>=r.top&&rawSY<=r.bottom;
+    btn.classList.toggle('cursor-on',over);
+    if (over){hoveredEl=btn;hoveredRect=r;}
+  });
+
+  let trayHit=null;
+  trayItems.forEach(item=>{
+    const r=item.getBoundingClientRect();
+    const over=rawSX>=r.left&&rawSX<=r.right&&rawSY>=r.top&&rawSY<=r.bottom;
+    item.classList.toggle('cursor-on',over);
+    if (over){hoveredEl=item;hoveredRect=r;isTray=true;trayHit=item;}
+  });
+
+  if (!hoveredEl){
+    dwellTarget=null; hideDwellRing(); return {uiHit:false,trayHit:null};
+  }
+
+  // Cooldown: after a successful select, ignore continued hover on the same element.
+  // (Tray still returns trayHit so deliberate pinch-drag keeps working.)
+  if (now < (dwellCooldown.get(hoveredEl)||0)){
+    dwellTarget=null; hideDwellRing();
+    return {uiHit:false,trayHit:isTray?trayHit:null};
+  }
+
+  if (dwellTarget!==hoveredEl){dwellTarget=hoveredEl;dwellStartTime=now;}
+
+  const progress=Math.min(1,(now-dwellStartTime)/DWELL_MS);
+  const cx=(hoveredRect.left+hoveredRect.right)/2;
+  const cy=(hoveredRect.top+hoveredRect.bottom)/2;
+  drawDwellRing(cx,cy,progress);
+
+  if (progress>=1){
+    const fired=dwellTarget;
+    dwellTarget=null;
+    dwellCooldown.set(fired, now + (isTray ? OBJ_COOLDOWN : BTN_COOLDOWN));
+    hideDwellRing();
+    if (isTray){
+      // Tray dwell = spawn at default position
+      spawnObject(fired.dataset.shape);
+      return {uiHit:true,trayHit:null};
+    } else {
+      fired.click();
+      return {uiHit:true,trayHit:null};
+    }
+  }
+
+  // Also return trayHit for pinch drag-and-drop (separate from dwell)
+  return {uiHit:false,trayHit:trayHit};
+}
+
+function isCursorInTrayArea(rawSX,rawSY){
+  if(!sidePanel.classList.contains('open')) return false;
+  const r=sidePanel.getBoundingClientRect();
+  return rawSX>=r.left&&rawSX<=r.right&&rawSY>=r.top&&rawSY<=r.bottom;
+}
+
+// ── Button event listeners ────────────────────────────────────────────────────
+document.querySelectorAll('.mode-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    if(mode==='draw'&&isDrawing){isDrawing=false;if(drawPoints.length>=20)finalizeDrawing();else{drawPoints=[];prevDX=prevDY=null;}}
+    if(grabbedObj){grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;grabbedObj=null;}
+    if(rotatingObj){rotatingObj.material.emissiveIntensity=rotatingObj.userData.baseEI;rotatingObj=null;}
+    if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
+    isScaling=false; axisLock=null; axisFrameCount=0; axisTotalDX=0; axisTotalDY=0;
+    smoothRotX=0; smoothRotY=0;
+    mode=btn.dataset.mode;
+    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b===btn));
+    drawIndicator.style.display=mode==='draw'?'block':'none';
+    axisIndicator.style.display='none';
+  });
+});
+
+document.querySelectorAll('.hb').forEach(btn=>{
+  btn.addEventListener('click',()=>{handFilter=btn.dataset.hand;document.querySelectorAll('.hb').forEach(b=>b.classList.toggle('active',b===btn));});
+});
+
+// HTML click fallback (mouse, non-interact-mode tray)
+document.querySelectorAll('.tray-item').forEach(item=>{
+  item.addEventListener('click',()=>{if(mode!=='interact')spawnObject(item.dataset.shape);});
+});
+
+function clearInk(){
+  dctx.clearRect(0,0,drawCanvas.width,drawCanvas.height);
+  drawPoints=[];prevDX=prevDY=null;isDrawing=false;matchPopup.style.display='none';
+}
+function clearObjects(){
+  for(const obj of objects){disposeOrbitRing(obj);scene.remove(obj);obj.geometry.dispose();obj.material.dispose();}
+  for(const d of deletingObjects){scene.remove(d.mesh);d.mesh.geometry.dispose();d.mesh.material.dispose();}
+  deletingObjects.length=0;objects.length=0;
+  grabbedObj=null;rotatingObj=null;selectedObj=null;isScaling=false;rhGroup.visible=false;
+  lockPendingObj=null;unlockTarget=null;
+  if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
+}
+
+// Count extended (non-thumb) fingers: tip clearly farther from wrist than its knuckle.
+// Orientation-independent, so it works at any hand angle. 4 = open palm, 0 = fist.
+function fingersExtended(lms){
+  const d=(a,b)=>Math.hypot(lms[a].x-lms[b].x,lms[a].y-lms[b].y);
+  const pairs=[[8,5],[12,9],[16,13],[20,17]]; // [tip, mcp] for index/middle/ring/pinky
+  let n=0;
+  for(const [tip,mcp] of pairs){ if(d(tip,0) > d(mcp,0)*1.55) n++; }
+  return n;
+}
+
+document.getElementById('clear-btn').addEventListener('click',clearInk);
+document.getElementById('clear-objs-btn').addEventListener('click',clearObjects);
+
+// ── MediaPipe ─────────────────────────────────────────────────────────────────
+const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`});
+hands.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+let mpTick=0;
+hands.onResults(result=>{
+  detecting=false;
+  let lms=null;
+  if(result.multiHandLandmarks&&result.multiHandLandmarks.length>0){
+    for(let i=0;i<result.multiHandLandmarks.length;i++){
+      const hn=result.multiHandedness&&result.multiHandedness[i];
+      const sl=hn?(hn.label==='Right'?'Left':'Right'):'Right';
+      if(handFilter==='Both'||sl===handFilter){lms=result.multiHandLandmarks[i];break;}
+    }
+  }
+  landmarks=lms;drawPreview(lms);mpTick++;
+});
+
+// ── Camera init ───────────────────────────────────────────────────────────────
+function startCamera(){
+  startBtn.disabled=true;startBtn.textContent='INITIALIZING…';
+  navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false})
+    .then(stream=>{
+      video.srcObject=stream;video.play();
+      startScreen.classList.add('fade-out');
+      setTimeout(()=>{startScreen.style.display='none';},700);
+      setInterval(()=>{if(!detecting&&video.readyState>=2){detecting=true;hands.send({image:video}).catch(()=>{detecting=false;});}},66);
+    })
+    .catch(()=>{startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';});
+}
+startBtn.addEventListener('click',startCamera);
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+let fpsTick=0,lastStat=performance.now(),last3js=0;
+
+// ── Animate ───────────────────────────────────────────────────────────────────
+let prevTime=performance.now();
+
+function animate(now){
+  requestAnimationFrame(animate);
+  const dt=Math.min((now-prevTime)/1000,0.05);
+  prevTime=now;
+
+  // Slide-out animation pool
+  for(let i=deletingObjects.length-1;i>=0;i--){
+    const d=deletingObjects[i];
+    d.mesh.position.x+=d.slideVX*dt;
+    d.mesh.position.y+=d.slideVY*dt;
+    d.mesh.material.opacity=Math.max(0,d.mesh.material.opacity-2.8*dt);
+    if(d.mesh.material.opacity<=0.01){scene.remove(d.mesh);d.mesh.geometry.dispose();d.mesh.material.dispose();deletingObjects.splice(i,1);}
+  }
+
+  // SPATIAL LOCK (part 3): locked objects are pinned to lockedPos and their orbit ring spins —
+  // every frame, independent of the hand, so they hold position even when tracking drops out.
+  for(const obj of objects){
+    if(obj.userData.locked){
+      obj.position.copy(obj.userData.lockedPos);                 // override any accidental movement
+      const ring=obj.userData.orbitRing;
+      if(ring){ ring.position.copy(obj.userData.lockedPos); ring.rotation.y+=0.5*dt; } // 0.5 rad/sec (~0.008/frame @60fps)
+    }
+  }
+
+  if(landmarks){
+    const lm8=landmarks[8],lm4=landmarks[4],lm0=landmarks[0],lm9=landmarks[9];
+
+    // ── FIX 1: pointer mapped to the VISIBLE fingertip, not landmark[8] (the nail pad).
+    // landmark[8] sits on the pad just BEHIND the visible tip, so the cursor used to render
+    // slightly short. Extrapolate past [8] along the [7]→[8] bone (DIP joint → pad) by TIP_EXTEND
+    // of that segment to land on the actual tip of the fingernail. Raw lm8 is still used below for
+    // pinch distance + rotation angle — only the CURSOR point is pushed out to the tip.
+    const lm7=landmarks[7];                       // DIP joint, one knuckle back from the pad
+    const dirX=lm8.x-lm7.x, dirY=lm8.y-lm7.y;     // bone direction: joint → pad
+    const TIP_EXTEND=0.40;                        // push 40% of that bone past the pad (tune 0.3–0.5)
+    const tipX=lm8.x+dirX*TIP_EXTEND, tipY=lm8.y+dirY*TIP_EXTEND;
+    filterCursor(tipX,tipY);            // de-jitter the extrapolated tip (6-frame avg + deadzone + adaptive lerp)
+    cursorToScreen();                   // -> curSX/curSY = exact screen pos of the fingertip
+    screenToWorld(curSX,curSY,_cur);    // -> world X/Y on the z=0 plane (z set separately below)
+
+    // ── Z DEPTH (part 1): MediaPipe gives each landmark a z relative to the wrist. Take the index
+    // tip's depth vs the wrist, EMA-smooth it (Z is far less noisy than XY, so a simple exponential
+    // average suffices — no 6-frame buffer), and map into the scene's depth range. We keep _cur.x/y
+    // on the z=0 plane (XY stays fingertip-accurate and depth-independent — pushing straight in/out
+    // moves only Z) and stamp the depth onto _cur.z; the cursor sphere and any grabbed object then
+    // sit at that depth together. (This is the "screenToWorld uses threeZ" step, done as an override.)
+    curZ += ((lm8.z - lm0.z) - curZ) * 0.2;                       // EMA of relative depth (wrist = origin)
+    const threeZ = Math.max(-3, Math.min(3, curZ * DEPTH_SCALE)); // clamp into the -3..+3 scene range
+    _cur.z = threeZ;                                              // cursor + dragged objects follow this depth
+    updateDepthBar(threeZ);                                      // part 5: left-edge depth readout
+
+    // ── FIX 2: stable velocity vector over 3 frames (direction + speed) ──
+    updateVelocity(now);
+
+    // ── STRICT AXIS SEPARATION: build an axis-locked movement vector (mvX/mvY) from velocity.
+    // If one axis is clearly dominant (≥2.2×) it wins and the other is zeroed COMPLETELY — not
+    // reduced — so dragging/rotation move on a single axis at a time. Near-diagonal motion (neither
+    // axis dominant; rare with natural wrist movement) keeps both. velX/velY stay untouched: they
+    // remain the source for speed/direction (wave-delete, popup wave). mvX/mvY drive POSITION + rotation.
+    const absVX=Math.abs(velX), absVY=Math.abs(velY);
+    const AXIS_DOMINANCE=2.2;
+    let mvX=velX, mvY=velY;
+    if(absVX>absVY*AXIS_DOMINANCE)      mvY=0;   // moving X → kill Y completely
+    else if(absVY>absVX*AXIS_DOMINANCE) mvX=0;   // moving Y → kill X completely
+
+    // ── FIX 4: pinch = hand-size-normalized distance + hysteresis ──
+    const tx=lm4.x*window.innerWidth, ty=lm4.y*window.innerHeight;
+    const ix=lm8.x*window.innerWidth, iy=lm8.y*window.innerHeight;
+    const pixelDist=Math.hypot(tx-ix,ty-iy);
+    const handSize=Math.hypot((lm0.x-lm9.x)*window.innerWidth,(lm0.y-lm9.y)*window.innerHeight)||1;
+    const pinchRatio=pixelDist/handSize;
+    const wasIndexPinching=indexPinching;
+    if(!indexPinching && pinchRatio<PINCH_START)      indexPinching=true;
+    else if(indexPinching && pinchRatio>PINCH_END)    indexPinching=false;
+    const indexPinchJustStarted=indexPinching&&!wasIndexPinching;
+    const indexPinchJustEnded=!indexPinching&&wasIndexPinching;
+
+    // Middle-finger pinch = ROTATE (thumb tip[4] ↔ middle tip[12]). Same hand-size-normalized
+    // distance + hysteresis as the index pinch, with its own thresholds. Drives inline rotation
+    // when NOT in ROTATE mode; the same thumb↔middle distance is also the clear-sequence snap signal.
+    const lm12=landmarks[12];
+    const midRatio=Math.hypot((lm4.x-lm12.x)*window.innerWidth,(lm4.y-lm12.y)*window.innerHeight)/handSize;
+    const wasMid=midPinching;
+    if(!midPinching && midRatio<MID_PINCH_START)   midPinching=true;
+    else if(midPinching && midRatio>MID_PINCH_END) midPinching=false;
+    const midJustStarted=midPinching&&!wasMid;
+
+    // Finger-extension count + popup state, used by the spatial lock/unlock gestures and the
+    // shape-popup palm-wave below. (The old palm→fist→snap clear-all gesture has been removed;
+    // CLEAR INK / CLEAR OBJS buttons remain the way to clear.)
+    const extCount=fingersExtended(landmarks);
+    const popupOpen = matchPopup.style.display==='block';
+
+    // ── Popup REPLACE/REJECT by palm wave (palm must be held 1s to arm) ──
+    if(matchPopup.style.display==='block' && !popupSelecting){
+      // Arm: hold an open palm for 1s
+      if(extCount>=4){
+        if(popupPalmStart===0) popupPalmStart=now;
+        if(now-popupPalmStart>=POPUP_ARM_MS) popupArmed=true;
+      } else if(extCount<3){
+        popupPalmStart=0; popupArmed=false;
+      }
+      matchHint.textContent = popupArmed
+        ? '✋ WAVE LEFT = REPLACE  ·  WAVE RIGHT = REJECT'
+        : '✋ HOLD PALM 1s TO ENABLE WAVE SELECT';
+      // Select once armed and a clear horizontal wave happens
+      if(popupArmed && now>popupWaveCooldown){
+        const horiz=Math.abs(velX)>Math.abs(velY)*1.5;
+        if(horiz && Math.abs(velX)>POPUP_WAVE_SPEED){
+          selectPopup(velX<0 ? 'replace' : 'reject');  // velX<0 = moving left
+        }
+      }
+    }
+
+    // ── SPATIAL LOCK (part 3) + UNLOCK (part 4) ──────────────────────────────────
+    // After releasing a grab (lockPendingObj set), opening ALL fingers into a full palm and holding
+    // it LOCK_HOLD_MS pins the object in place. A re-pinch resumes normal use; if the palm is never
+    // made the candidate just lapses (an ordinary release). The clear-sequence palm is suppressed above.
+    if(lockPendingObj){
+      if(lockPendingObj.userData.deleting||lockPendingObj.userData.locked){ lockPendingObj=null; lockPalmStart=0; }
+      else if(indexPinching){ lockPendingObj=null; lockPalmStart=0; }      // re-pinched → resume normal use
+      else if(extCount>=4){
+        if(lockPalmStart===0) lockPalmStart=now;
+        if(now-lockPalmStart>=LOCK_HOLD_MS){ lockObject(lockPendingObj); lockPendingObj=null; lockPalmStart=0; }
+      } else {
+        lockPalmStart=0;
+        if(now>lockPendingExpire) lockPendingObj=null;                     // never made the palm → ordinary release
+      }
+    }
+    // UNLOCK: hold a FIST (~600ms) with the cursor within UNLOCK_RANGE (XY) of a locked object.
+    if(!popupOpen && !lockPendingObj && extCount===0){
+      let near=null,nd=UNLOCK_RANGE;
+      for(const obj of objects){ if(obj.userData.locked){ const d=xyDist(_cur,obj.position); if(d<nd){nd=d;near=obj;} } }
+      if(near){
+        if(unlockTarget!==near){ unlockTarget=near; unlockStart=now; }
+        else if(now-unlockStart>=UNLOCK_HOLD_MS){ unlockObject(near); unlockTarget=null; }
+      } else unlockTarget=null;
+    } else unlockTarget=null;
+
+    prevHadLandmarks=true;
+
+    // UI hit-test + drawing all use curSX/curSY — identical to where the cursor renders
+    const rawSX=curSX, rawSY=curSY;
+
+    // FIX 5: Dwell UI hover (suppressed during the spatial-lock palm hold, so an open palm parked
+    // over a button can't accidentally dwell-activate it)
+    const {uiHit,trayHit} = lockPendingObj
+      ? (hideDwellRing(), {uiHit:false, trayHit:null})
+      : updateDwellHover(rawSX,rawSY,now);
+
+    {
+      // Cursor colour
+      const waveReady=grabbedObj&&(now-grabStartTime>MIN_HOLD_MS)&&!isScaling;
+      let cstate;
+      if(mode==='draw')        cstate=isDrawing?C_DRAW_ACT:C_DRAW_IDLE;
+      else if(mode==='rotate') cstate=indexPinching?C_ROTATE:C_IDLE;
+      else if(midPinching&&!grabbedObj) cstate=C_ROTATE;   // middle-pinch rotate (ignored while the index pinch holds an object)
+      else if(waveReady&&moveSpeed>WAVE_SPEED*0.55) cstate=C_WAVE;
+      else if(isScaling)       cstate=C_RESIZE;
+      else                     cstate=indexPinching?C_PINCH:C_IDLE;
+      cursorMat.color.set(cstate.col);cursorMat.emissive.set(cstate.emi);cLight.color.set(cstate.lc);
+      cursor.position.copy(_cur);         // always at the adjusted fingertip
+      cursor.visible=true;
+
+      // Resize handle (uses the same cursor world point)
+      updateResizeHandle(_cur);
+    }
+
+    // ══ INTERACT ══════════════════════════════════════════════════════════════
+    if(mode==='interact'){
+      if(indexPinchJustStarted&&!uiHit&&!midPinching){   // CONFLICT GUARD: never start a grab while the middle pinch (rotate) is engaged
+        if(trayHit&&!draggingTrayItem){
+          // Drag from tray: spawn at cursor and immediately grab
+          const newObj=spawnObject(trayHit.dataset.shape,_cur.clone());
+          if(newObj){
+            grabbedObj=newObj;selectedObj=newObj;
+            grabOffset.set(0,0,0);grabStartTime=now;
+            newObj.material.emissiveIntensity=newObj.userData.baseEI*3.2;
+            draggingTrayItem=trayHit;trayHit.classList.add('being-dragged');
+          }
+        } else if(!trayHit&&selectedObj&&rhGroup.visible&&xyDist(_cur,rhGroup.position)<RESIZE_GRAB_R){
+          isScaling=true;
+          scaleInitDist=Math.max(0.05,xyDist(_cur,selectedObj.position));
+          scaleInitVal=selectedObj.scale.x;
+        } else if(!trayHit){
+          let closest=null,closestD=0.52;
+          for(const obj of objects){
+            if(obj.userData.deleting||obj.userData.locked)continue;   // locked objects ignore the grab (index pinch passes through)
+            const d=xyDist(_cur,obj.position);                        // XY-only: depth never gates selection
+            if(d<closestD){closestD=d;closest=obj;}
+          }
+          if(closest){
+            grabbedObj=closest;selectedObj=closest;
+            grabOffset.copy(closest.position).sub(_cur);
+            grabStartTime=now;
+            closest.material.emissiveIntensity=closest.userData.baseEI*3.2;
+          }
+        }
+      }
+
+      // Scale
+      if(isScaling&&indexPinching&&selectedObj){
+        const currD=Math.max(0.05,xyDist(_cur,selectedObj.position));
+        const target=Math.max(0.15,Math.min(5.0,scaleInitVal*(currD/scaleInitDist)));
+        const lT=0.14;
+        selectedObj.scale.x+=(target-selectedObj.scale.x)*lT;
+        selectedObj.scale.y+=(target-selectedObj.scale.y)*lT;
+        selectedObj.scale.z+=(target-selectedObj.scale.z)*lT;
+        rhConeMat1.color.set(0xffdd00);rhConeMat2.color.set(0xffdd00);
+      }
+
+      // FIX 2: wave-to-delete uses the 5-frame velocity vector (speed + direction)
+      if(grabbedObj&&!isScaling&&now-grabStartTime>MIN_HOLD_MS){
+        if(moveSpeed>WAVE_SPEED) waveFrameCount++;
+        else waveFrameCount=0;
+        if(waveFrameCount>=3){
+          const obj=grabbedObj;
+          const idx=objects.indexOf(obj);
+          if(idx>=0)objects.splice(idx,1);
+          if(selectedObj===obj){selectedObj=null;rhGroup.visible=false;}
+          if(rotatingObj===obj) rotatingObj=null;
+          if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
+          obj.material.emissiveIntensity=obj.userData.baseEI;
+          startDeleteAnimation(obj,velX,velY); // slide in the measured velocity direction
+          grabbedObj=null;waveFrameCount=0;
+        }
+      }
+
+      // Drag — STRICT AXIS SEPARATION: only the dominant axis moves; the off-axis is frozen
+      // (mvX or mvY is 0 when one axis dominates). The frozen axis keeps its grab-offset fresh so
+      // switching direction never jumps. Diagonal motion (both non-zero) tracks the fingertip 1:1.
+      if(!isScaling&&indexPinching&&grabbedObj){
+        if(mvX!==0) grabbedObj.position.x=_cur.x+grabOffset.x;
+        else        grabOffset.x=grabbedObj.position.x-_cur.x;
+        if(mvY!==0) grabbedObj.position.y=_cur.y+grabOffset.y;
+        else        grabOffset.y=grabbedObj.position.y-_cur.y;
+        grabbedObj.position.z=_cur.z+grabOffset.z;   // Z DEPTH (part 2): depth follows the hand every frame (own axis, not gated)
+      }
+
+      if(indexPinchJustEnded){
+        if(isScaling){isScaling=false;rhConeMat1.color.set(0xff8833);rhConeMat2.color.set(0xff8833);}
+        if(grabbedObj){
+          grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;
+          // SPATIAL LOCK candidate (part 3): opening into a full palm now (held 800ms) locks it in place
+          lockPendingObj=grabbedObj; lockPalmStart=0; lockPendingExpire=now+LOCK_GRACE_MS+LOCK_HOLD_MS;
+          grabbedObj=null;
+        }
+        if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
+        waveFrameCount=0;
+      }
+    }
+
+    // ══ ROTATE ════════════════════════════════════════════════════════════════
+    // User's spec: keep the ROTATE button. In ROTATE mode rotate with the INDEX pinch;
+    // in ANY other mode rotate with a MIDDLE-finger pinch (no need to click ROTATE each time).
+    // Rotation drives its own `rotatingObj`, kept separate from grab so both can coexist
+    // in INTERACT mode (index = grab/move, middle = rotate).
+    let rotAct, rotStart, rotViaMiddle=false;
+    if(mode==='rotate'){ rotAct=indexPinching; rotStart=indexPinchJustStarted; }            // CASE A: ROTATE mode → index pinch rotates
+    else if(!popupOpen && !grabbedObj){ rotAct=midPinching; rotStart=midJustStarted; rotViaMiddle=true; } // CASE B: any other mode → middle pinch; ignored while index holds an object / during popup
+    else { rotAct=false; rotStart=false; }
+
+    {
+      const currAngle=Math.atan2(lm8.y-lm4.y,lm4.x-lm8.x);
+
+      if(rotStart&&!uiHit){
+        // CASE B middle-pinch reaches a little farther (0.6) and glows *2.0; ROTATE-mode index keeps 0.52 / *2.8
+        let closest=null,closestD=rotViaMiddle?0.6:0.52;
+        for(const obj of objects){if(obj.userData.deleting||obj.userData.locked)continue;const d=xyDist(_cur,obj.position);if(d<closestD){closestD=d;closest=obj;}}
+        if(closest){
+          rotatingObj=closest; lastPinchAngle=currAngle;
+          axisLock=null;axisFrameCount=0;axisTotalDX=0;axisTotalDY=0;
+          closest.material.emissiveIntensity=closest.userData.baseEI*(rotViaMiddle?2.0:2.8);
+        }
+      }
+
+      if(rotAct&&rotatingObj){
+        // per-frame deltas from the axis-locked movement vector (mvX/mvY) — off-axis already zeroed
+        const deltaX=mvX*dt, deltaY=mvY*dt;
+
+        // Accumulate evidence, then lock to ONE axis (X or Y) — never both, never FREE.
+        if(axisLock===null){
+          if(Math.abs(deltaX)>AXIS_LOCK_THRESHOLD) axisTotalDX+=Math.abs(deltaX);
+          if(Math.abs(deltaY)>AXIS_LOCK_THRESHOLD) axisTotalDY+=Math.abs(deltaY);
+          axisFrameCount++;
+          if(axisFrameCount>=AXIS_LOCK_FRAMES && (axisTotalDX>0||axisTotalDY>0)){
+            axisLock = axisTotalDX>=axisTotalDY ? 'Y' : 'X';
+          }
+        }
+
+        // Exclusive rotation: only the chosen axis moves; the other is fully ignored.
+        const dZ=currAngle-lastPinchAngle;
+        if(axisLock==='Y'){
+          rotatingObj.rotation.y+=deltaX*rotSens;          // horizontal → Y only
+        } else if(axisLock==='X'){
+          rotatingObj.rotation.x+=deltaY*rotSens;          // vertical → X only
+        } else {
+          if(Math.abs(deltaX)>=Math.abs(deltaY)){
+            if(Math.abs(deltaX)>AXIS_FREE_DEADZONE) rotatingObj.rotation.y+=deltaX*rotSens;
+          } else {
+            if(Math.abs(deltaY)>AXIS_FREE_DEADZONE) rotatingObj.rotation.x+=deltaY*rotSens;
+          }
+        }
+        if(Math.abs(dZ)>0.03) rotatingObj.rotation.z+=dZ;  // Z via deliberate wrist twist only
+        lastPinchAngle=currAngle;
+
+        const glyph=axisLock==='Y'?'→ Y':axisLock==='X'?'↑ X':'· …';
+        axisIndicator.textContent=glyph;
+        axisIndicator.style.display='block';
+        axisHideAt=now+300;
+      }
+
+      // Release when the rotation pinch ends, mode changes, or it gets suppressed
+      if(rotatingObj && !rotAct){
+        rotatingObj.material.emissiveIntensity=rotatingObj.userData.baseEI;
+        rotatingObj=null;axisLock=null;axisFrameCount=0;axisTotalDX=0;axisTotalDY=0;
+        axisHideAt=now+300;
+      }
+
+      if(axisIndicator.style.display==='block' && now>axisHideAt) axisIndicator.style.display='none';
+    }
+
+    // ══ DRAW ══════════════════════════════════════════════════════════════════
+    // FIX 2: ink emits from curSX/curSY — the identical point the cursor sphere
+    // is unprojected from, so drawing and pointer cannot diverge.
+    if(mode==='draw'){
+      const inTray=isCursorInTrayArea(curSX,curSY);
+
+      if(!inTray&&indexPinching){
+        if(!isDrawing){
+          isDrawing=true;prevDX=curSX;prevDY=curSY;drawPoints=[{x:curSX,y:curSY}];
+        } else {
+          const moved=Math.hypot(curSX-prevDX,curSY-prevDY);
+          if(moved>=DRAW_DEADZONE){
+            dctx.beginPath();dctx.moveTo(prevDX,prevDY);dctx.lineTo(curSX,curSY);
+            dctx.strokeStyle='rgba(180,70,255,0.92)';dctx.lineWidth=4;
+            dctx.lineCap='round';dctx.lineJoin='round';dctx.stroke();
+            prevDX=curSX;prevDY=curSY;drawPoints.push({x:curSX,y:curSY});lastDrawTime=now;
+          }
+        }
+      } else if(isDrawing&&!indexPinching){
+        isDrawing=false;
+        if(drawPoints.length>=20)finalizeDrawing();
+        else{drawPoints=[];prevDX=prevDY=null;}
+      }
+
+      if(isDrawing&&now-lastDrawTime>800&&drawPoints.length>=20){
+        isDrawing=false;finalizeDrawing();
+      }
+    }
+
+  } else {
+    // No landmarks
+    cursor.visible=false;
+    ALL_UI_BTNS.forEach(b=>b.classList.remove('cursor-on'));
+    trayItems.forEach(i=>i.classList.remove('cursor-on'));
+    hideDwellRing(); dwellTarget=null;
+    if(grabbedObj){grabbedObj.material.emissiveIntensity=grabbedObj.userData.baseEI;grabbedObj=null;}
+    if(rotatingObj){rotatingObj.material.emissiveIntensity=rotatingObj.userData.baseEI;rotatingObj=null;}
+    if(isScaling){isScaling=false;rhConeMat1.color.set(0xff8833);rhConeMat2.color.set(0xff8833);}
+    if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
+    indexPinching=false;midPinching=false;prevHadLandmarks=false;waveFrameCount=0;
+    axisLock=null;axisFrameCount=0;axisTotalDX=0;axisTotalDY=0;
+    velX=velY=0;moveSpeed=0;moving=false;posHistory.length=0;
+    smoothRotX=0;smoothRotY=0;axisIndicator.style.display='none';
+    // Reset cursor filter so it re-seeds cleanly when the hand returns (no glide-in from stale buffer)
+    cnx=null;cny=null;bufCount=0;bufHead=0;
+    // Reset depth + cancel any in-flight lock/unlock gesture (locked objects themselves stay locked)
+    curZ=0;lockPendingObj=null;lockPalmStart=0;unlockTarget=null;updateDepthBar(0);
+    if(mode==='draw'&&isDrawing&&now-lastDrawTime>800){
+      isDrawing=false;
+      if(drawPoints.length>=20)finalizeDrawing();else{drawPoints=[];prevDX=prevDY=null;}
+    }
+    updateResizeHandle(null);
+  }
+
+  const t0=performance.now();
+  renderer.render(scene,cam);
+  last3js=performance.now()-t0;fpsTick++;
+
+  if(now-lastStat>=1000){
+    vFps.textContent=fpsTick;vMp.textContent=mpTick;v3js.textContent=last3js.toFixed(1)+'ms';
+    fpsTick=0;mpTick=0;lastStat=now;
+  }
+}
+
+requestAnimationFrame(animate);
+
+window.addEventListener('resize',()=>{
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  cam.aspect=window.innerWidth/window.innerHeight;cam.updateProjectionMatrix();
+  const img=dctx.getImageData(0,0,drawCanvas.width,drawCanvas.height);
+  drawCanvas.width=window.innerWidth;drawCanvas.height=window.innerHeight;
+  dctx.putImageData(img,0,0);
+});
+</script>
+</body>
+</html>
