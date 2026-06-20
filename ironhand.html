@@ -221,6 +221,68 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 
 /* ── Draw indicator ───────────────────────────────────────────────────────── */
 #draw-indicator { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 6; font-family: 'Orbitron', monospace; font-size: 10px; color: rgba(34,255,200,0.85); letter-spacing: 0.3em; display: none; }
+
+/* ── Camera flip button (mobile only, shown via media query) ──────────────────── */
+#camera-flip-btn {
+  position: fixed; top: 16px; left: 64px; z-index: 12;
+  width: 36px; height: 36px; display: none; align-items: center; justify-content: center;
+  background: rgba(10,5,30,0.62); border: 1px solid rgba(160,80,255,0.38);
+  border-radius: 4px; cursor: pointer; font-size: 20px; color: rgba(210,180,255,0.88);
+  outline: none; transition: background 0.15s, border-color 0.15s;
+}
+#camera-flip-btn:hover { background: rgba(160,80,255,0.18); border-color: rgba(200,100,255,0.7); }
+
+/* ── Record button (inside #hud-right) ───────────────────────────────────────── */
+#record-btn {
+  margin-top: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  background: rgba(10,5,30,0.62); border: 2px solid rgba(255,60,60,0.6);
+  border-radius: 50%; cursor: pointer; font-size: 13px; color: #ff5555;
+  outline: none; transition: all 0.15s; margin-left: auto;
+}
+#record-btn.recording { background: rgba(200,20,20,0.3); border-color: #ff2222; color: #ff2222; }
+
+/* ── Recording border pulse ──────────────────────────────────────────────────── */
+#recording-border {
+  position: fixed; inset: 0; z-index: 10; pointer-events: none; display: none;
+  border: 3px solid transparent;
+}
+#recording-border.active { display: block; animation: rec-pulse 1.1s ease-in-out infinite; }
+@keyframes rec-pulse {
+  0%, 100% { border-color: rgba(255,30,30,0.85); }
+  50%       { border-color: rgba(255,30,30,0.15); }
+}
+
+/* ── Save prompt ─────────────────────────────────────────────────────────────── */
+#save-prompt {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 20; display: none;
+}
+#save-btn {
+  font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
+  color: #44ff88; background: rgba(0,160,60,0.12); border: 1px solid rgba(50,220,80,0.55);
+  padding: 11px 26px; letter-spacing: 0.18em; cursor: pointer; outline: none;
+  border-radius: 4px; transition: all 0.15s;
+}
+#save-btn:hover { background: rgba(50,200,80,0.24); }
+
+/* ── Orientation hint (portrait mobile only) ─────────────────────────────────── */
+#orient-hint {
+  position: fixed; inset: 0; z-index: 50; display: none; pointer-events: none;
+  align-items: flex-start; justify-content: center; padding-top: 14px;
+}
+#orient-msg {
+  font-family: 'Orbitron', monospace; font-size: 10px; color: rgba(200,160,255,0.75);
+  letter-spacing: 0.28em; background: rgba(0,0,0,0.5); padding: 6px 14px; border-radius: 3px;
+}
+
+/* ── Mobile touch targets ────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  #camera-flip-btn { display: flex; }
+  .tray-item { height: 58px; }
+  #mode-bar { gap: 6px; }
+  .mode-btn { padding: 8px 14px; }
+  #camera-flip-btn, #record-btn { width: 44px; height: 44px; }
+}
 </style>
 </head>
 <body>
@@ -252,6 +314,9 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 <button id="hamburger" aria-label="Menu">
   <span></span><span></span><span></span>
 </button>
+
+<!-- Camera flip (mobile only, shown via CSS media query) -->
+<button id="camera-flip-btn" aria-label="Flip camera">⇄</button>
 
 <!-- Side panel -->
 <div id="side-panel">
@@ -328,6 +393,7 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
     <div class="sr" id="sr-mp"><span class="sl">MP</span><span id="v-mp">--</span></div>
     <div class="sr" id="sr-3js"><span class="sl">3JS</span><span id="v-3js">--</span></div>
   </div>
+  <button id="record-btn" aria-label="Record">●</button>
 </div>
 
 <div id="draw-indicator">✦ DRAW MODE — PINCH TO INK</div>
@@ -340,6 +406,10 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
   </div>
   <div id="match-hint">✋ WAVE LEFT = REPLACE&nbsp;&nbsp;·&nbsp;&nbsp;WAVE RIGHT = REJECT</div>
 </div>
+
+<div id="recording-border"></div>
+<div id="save-prompt"><button id="save-btn">▼ TAP TO SAVE VIDEO</button></div>
+<div id="orient-hint"><div id="orient-msg">↻ ROTATE TO LANDSCAPE</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
@@ -377,6 +447,11 @@ const scaleHint      = document.getElementById('scale-hint');      // Fix 6
 const dwellCanvas    = document.getElementById('dwell-canvas');    // Fix 5
 const dwellCtx       = dwellCanvas.getContext('2d');
 const depthFill      = document.getElementById('depth-fill');       // part 5: depth bar fill
+
+// ── Mobile + mirror state ─────────────────────────────────────────────────────
+const isMobile = window.matchMedia('(pointer: coarse)').matches;
+let currentFacingMode = 'user';
+let isMirrored = true;
 
 // ── Core state ────────────────────────────────────────────────────────────────
 let sens       = 1.4;
@@ -472,13 +547,21 @@ const CONNECTIONS = [
 ];
 function drawPreview(lms) {
   pctx.clearRect(0,0,160,120);
-  if (video.readyState >= 2) { pctx.save(); pctx.translate(160,0); pctx.scale(-1,1); pctx.drawImage(video,0,0,160,120); pctx.restore(); }
+  if (video.readyState >= 2) {
+    pctx.save();
+    if (isMirrored) { pctx.translate(160,0); pctx.scale(-1,1); }
+    pctx.drawImage(video,0,0,160,120);
+    pctx.restore();
+  }
   if (!lms) return;
   pctx.strokeStyle='#00ff44'; pctx.lineWidth=1; pctx.beginPath();
-  for (const [a,b] of CONNECTIONS) { pctx.moveTo((1-lms[a].x)*160,lms[a].y*120); pctx.lineTo((1-lms[b].x)*160,lms[b].y*120); }
+  for (const [a,b] of CONNECTIONS) {
+    const ax=isMirrored?(1-lms[a].x)*160:lms[a].x*160, bx=isMirrored?(1-lms[b].x)*160:lms[b].x*160;
+    pctx.moveTo(ax,lms[a].y*120); pctx.lineTo(bx,lms[b].y*120);
+  }
   pctx.stroke();
   pctx.fillStyle='#00ff44';
-  for (const lm of lms) { pctx.beginPath(); pctx.arc((1-lm.x)*160,lm.y*120,1.5,0,Math.PI*2); pctx.fill(); }
+  for (const lm of lms) { const lx=isMirrored?(1-lm.x)*160:lm.x*160; pctx.beginPath(); pctx.arc(lx,lm.y*120,1.5,0,Math.PI*2); pctx.fill(); }
 }
 
 // ── Draw canvas ───────────────────────────────────────────────────────────────
@@ -840,7 +923,7 @@ function cursorToScreen() {
   const scale = Math.max(W / vw, H / vh);   // object-fit: cover
   const dispW = vw * scale, dispH = vh * scale;
   const offX = (W - dispW) / 2, offY = (H - dispH) / 2; // centered crop offsets
-  curSX = offX + (1 - cnx) * dispW;          // (1-cnx) = mirror for selfie view
+  curSX = offX + (isMirrored ? (1 - cnx) : cnx) * dispW;  // mirror front cam only
   curSY = offY + cny * dispH;
 }
 
@@ -1072,6 +1155,76 @@ function startCamera(){
     .catch(()=>{startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';});
 }
 startBtn.addEventListener('click',startCamera);
+
+// ── Camera flip ───────────────────────────────────────────────────────────────
+async function switchCamera(){
+  const tracks=video.srcObject?video.srcObject.getTracks():[];
+  tracks.forEach(t=>t.stop());
+  currentFacingMode=currentFacingMode==='user'?'environment':'user';
+  isMirrored=currentFacingMode==='user';
+  video.style.transform=isMirrored?'scaleX(-1)':'scaleX(1)';
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:currentFacingMode,width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=stream;await video.play();
+    cnx=null;cny=null;bufCount=0;bufHead=0;  // reset cursor filter: mirror flip changes landmark→screen mapping
+  }catch(e){
+    // revert if new camera failed
+    currentFacingMode=currentFacingMode==='user'?'environment':'user';
+    isMirrored=currentFacingMode==='user';
+    video.style.transform=isMirrored?'scaleX(-1)':'scaleX(1)';
+  }
+}
+document.getElementById('camera-flip-btn').addEventListener('click',switchCamera);
+
+// ── Screen recording ──────────────────────────────────────────────────────────
+let recording=false,mediaRecorder=null,recordedChunks=[],recordCanvas=null,rctx=null,lastRecordedBlob=null;
+const recordBtn=document.getElementById('record-btn');
+const savePrompt=document.getElementById('save-prompt');
+const recordingBorder=document.getElementById('recording-border');
+
+function startRecording(){
+  if(recording||!video.srcObject)return;
+  recordCanvas=document.createElement('canvas');
+  recordCanvas.width=window.innerWidth;recordCanvas.height=window.innerHeight;
+  rctx=recordCanvas.getContext('2d');
+  const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';
+  const stream=recordCanvas.captureStream(30);
+  mediaRecorder=new MediaRecorder(stream,{mimeType:mime});
+  recordedChunks=[];
+  mediaRecorder.ondataavailable=e=>{if(e.data.size>0)recordedChunks.push(e.data);};
+  mediaRecorder.onstop=()=>{lastRecordedBlob=new Blob(recordedChunks,{type:'video/webm'});savePrompt.style.display='block';};
+  mediaRecorder.start();
+  recording=true;
+  recordBtn.textContent='■';recordBtn.classList.add('recording');
+  recordingBorder.classList.add('active');
+}
+
+function stopRecording(){
+  if(!recording)return;
+  recording=false;mediaRecorder.stop();
+  recordBtn.textContent='●';recordBtn.classList.remove('recording');
+  recordingBorder.classList.remove('active');
+}
+
+async function shareRecording(){
+  savePrompt.style.display='none';
+  if(!lastRecordedBlob)return;
+  const file=new File([lastRecordedBlob],`ironhand-${Date.now()}.webm`,{type:'video/webm'});
+  if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:'Iron Hand AR Recording'});}
+    catch(e){fallbackDownload();}
+  } else {fallbackDownload();}
+}
+
+function fallbackDownload(){
+  if(!lastRecordedBlob)return;
+  const url=URL.createObjectURL(lastRecordedBlob);
+  const a=document.createElement('a');a.href=url;a.download=`ironhand-${Date.now()}.webm`;a.click();
+  URL.revokeObjectURL(url);
+}
+
+recordBtn.addEventListener('click',()=>{if(recording)stopRecording();else startRecording();});
+document.getElementById('save-btn').addEventListener('click',shareRecording);
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 let fpsTick=0,lastStat=performance.now(),last3js=0;
@@ -1458,6 +1611,13 @@ function animate(now){
   const t0=performance.now();
   renderer.render(scene,cam);
   last3js=performance.now()-t0;fpsTick++;
+  if(recording&&rctx&&video.readyState>=2){
+    rctx.save();
+    if(isMirrored){rctx.translate(recordCanvas.width,0);rctx.scale(-1,1);}
+    rctx.drawImage(video,0,0,recordCanvas.width,recordCanvas.height);
+    rctx.restore();
+    rctx.drawImage(threeCanvas,0,0,recordCanvas.width,recordCanvas.height);
+  }
 
   if(now-lastStat>=1000){
     vFps.textContent=fpsTick;vMp.textContent=mpTick;v3js.textContent=last3js.toFixed(1)+'ms';
@@ -1467,12 +1627,19 @@ function animate(now){
 
 requestAnimationFrame(animate);
 
+const orientHint=document.getElementById('orient-hint');
+function checkOrientation(){
+  if(isMobile) orientHint.style.display=window.innerHeight>window.innerWidth?'flex':'none';
+}
+checkOrientation();
+
 window.addEventListener('resize',()=>{
   renderer.setSize(window.innerWidth,window.innerHeight);
   cam.aspect=window.innerWidth/window.innerHeight;cam.updateProjectionMatrix();
   const img=dctx.getImageData(0,0,drawCanvas.width,drawCanvas.height);
   drawCanvas.width=window.innerWidth;drawCanvas.height=window.innerHeight;
   dctx.putImageData(img,0,0);
+  checkOrientation();
 });
 </script>
 </body>
