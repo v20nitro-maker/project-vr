@@ -904,6 +904,14 @@ let extrudingObj=null;
 let extrudeDepth=0.05;
 let extrudeInitZ=0;
 
+// ── Pinch-to-create state ─────────────────────────────────────────────────────
+let lastSelectedTrayShape='sphere3d';
+let ptcHoldStart=0;           // timestamp when empty-space pinch began (0=idle)
+let ptcPinchPt=null;          // _cur clone at pinch moment (THREE.Vector3)
+let ptcObj=null;              // the growing seed object
+const PTC_HOLD_MS=500;        // ms hold before seed spawns
+const PTC_SCALE_K=1.2;        // distance → scale multiplier
+
 // ── Grab state ────────────────────────────────────────────────────────────────
 let grabbedObj=null;
 let rotatingObj=null;                    // object currently being rotated (separate from grab)
@@ -1088,6 +1096,7 @@ function updateDwellHover(rawSX,rawSY,now){
     hideDwellRing();
     if (isTray){
       // Tray dwell = spawn at default position
+      lastSelectedTrayShape=fired.dataset.shape;
       spawnObject(fired.dataset.shape);
       return {uiHit:true,trayHit:null};
     } else {
@@ -1128,7 +1137,7 @@ document.querySelectorAll('.hb').forEach(btn=>{
 
 // HTML click fallback (mouse, non-interact-mode tray)
 document.querySelectorAll('.tray-item').forEach(item=>{
-  item.addEventListener('click',()=>{if(mode!=='interact')spawnObject(item.dataset.shape);});
+  item.addEventListener('click',()=>{if(mode!=='interact'){lastSelectedTrayShape=item.dataset.shape;spawnObject(item.dataset.shape);}});
 });
 
 function clearInk(){
@@ -1143,6 +1152,7 @@ function clearObjects(){
   lockPendingObj=null;unlockTarget=null;
   if(draggingTrayItem){draggingTrayItem.classList.remove('being-dragged');draggingTrayItem=null;}
   isExtruding=false;extrudingObj=null;extHandle.visible=false;extDepthHud.style.display='none';
+  ptcHoldStart=0;ptcPinchPt=null;ptcObj=null;
 }
 
 // Count extended (non-thumb) fingers: tip clearly farther from wrist than its knuckle.
@@ -1454,6 +1464,7 @@ function animate(now){
       if(indexPinchJustStarted&&!uiHit&&!midPinching){   // CONFLICT GUARD: never start a grab while the middle pinch (rotate) is engaged
         if(trayHit&&!draggingTrayItem){
           // Drag from tray: spawn at cursor and immediately grab
+          lastSelectedTrayShape=trayHit.dataset.shape;
           const newObj=spawnObject(trayHit.dataset.shape,_cur.clone());
           if(newObj){
             grabbedObj=newObj;selectedObj=newObj;
@@ -1482,6 +1493,9 @@ function animate(now){
             grabOffset.copy(closest.position).sub(_cur);
             grabStartTime=now;
             closest.material.emissiveIntensity=closest.userData.baseEI*3.2;
+          } else {
+            // Empty space — start pinch-to-create hold timer
+            ptcHoldStart=now; ptcPinchPt=_cur.clone();
           }
         }
       }
@@ -1516,6 +1530,18 @@ function animate(now){
         extDepthHud.style.display='block';
       }
 
+      // PINCH-TO-CREATE: hold timer → spawn seed → scale by drag distance from pinch point
+      if(ptcHoldStart>0&&indexPinching){
+        if(!ptcObj&&now-ptcHoldStart>=PTC_HOLD_MS){
+          ptcObj=spawnObject(lastSelectedTrayShape,ptcPinchPt.clone());
+          if(ptcObj) ptcObj.scale.setScalar(0.05);
+        }
+        if(ptcObj){
+          const dist=xyDist(_cur,ptcPinchPt);
+          ptcObj.scale.setScalar(Math.max(0.05,Math.min(2.0,0.05+dist*PTC_SCALE_K)));
+        }
+      }
+
       // FIX 2: wave-to-delete uses the 5-frame velocity vector (speed + direction)
       if(grabbedObj&&!isScaling&&now-grabStartTime>MIN_HOLD_MS){
         if(moveSpeed>WAVE_SPEED) waveFrameCount++;
@@ -1545,6 +1571,10 @@ function animate(now){
       }
 
       if(indexPinchJustEnded){
+        if(ptcHoldStart>0){
+          if(ptcObj){ptcObj.material.emissiveIntensity=ptcObj.userData.baseEI;selectedObj=ptcObj;}
+          ptcObj=null; ptcHoldStart=0; ptcPinchPt=null;
+        }
         if(isExtruding){
           isExtruding=false;
           if(extrudingObj){extrudingObj.userData.sourceShape=null;extrudingObj=null;}
@@ -1681,6 +1711,8 @@ function animate(now){
     curZ=0;lockPendingObj=null;lockPalmStart=0;unlockTarget=null;updateDepthBar(0);
     if(isExtruding){isExtruding=false;if(extrudingObj){extrudingObj.userData.sourceShape=null;extrudingObj=null;}extrudeDepth=0.05;extDepthHud.style.display='none';}
     extHandle.visible=false;
+    if(ptcObj){ptcObj.material.emissiveIntensity=ptcObj.userData.baseEI;selectedObj=ptcObj;ptcObj=null;}
+    ptcHoldStart=0;ptcPinchPt=null;
     if(mode==='draw'&&isDrawing&&now-lastDrawTime>800){
       isDrawing=false;
       if(drawPoints.length>=20)finalizeDrawing();else{drawPoints=[];prevDX=prevDY=null;}
