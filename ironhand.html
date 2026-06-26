@@ -525,16 +525,16 @@ let midPinching= false;          // middle+thumb pinch (rotate while NOT in ROTA
 
 // Drawing state
 let isDrawing = false;
-const DRAW_DEADZONE = 2.5; // px in screen space before a new ink segment commits
+const DRAW_DEADZONE = 4.0; // px in screen space before a new ink segment commits
 
 // ── FIX 1: single cursor pipeline — pointer maps 1:1 to landmark[8] (de-jitter only)
-const SMOOTH_N   = 6;               // moving-average window
+const SMOOTH_N   = 10;              // moving-average window (wider = smoother)
 const bufX = new Float32Array(SMOOTH_N);
 const bufY = new Float32Array(SMOOTH_N);
 let bufCount = 0, bufHead = 0;
 let cnx = null, cny = null;         // committed cursor position, normalized (pre-mirror)
 let curSX = 0, curSY = 0;           // committed cursor position, screen px (THE source of truth)
-const STATIC_DEADZONE = 0.008;      // normalized — below this the cursor does not move at all
+const STATIC_DEADZONE = 0.012;      // normalized — below this the cursor does not move at all
 
 // ── PRECISION FIX 4: pinch detection (hand-size normalized + hysteresis)
 const PINCH_START = 0.18;           // ratio: fingers nearly touching to start
@@ -1063,7 +1063,7 @@ function filterCursor(ax, ay) {
   const dx = mx - cnx, dy = my - cny;
   if (Math.abs(dx) < STATIC_DEADZONE && Math.abs(dy) < STATIC_DEADZONE) return; // static = frozen
   const speed = Math.hypot(dx, dy);
-  const lf = Math.min(0.6, Math.max(0.1, speed * 8)); // fast=responsive, slow=stable
+  const lf = Math.min(0.45, Math.max(0.08, speed * 5)); // fast=responsive, slow=stable
   cnx += dx * lf; cny += dy * lf;
 }
 
@@ -1403,8 +1403,9 @@ async function startCamera(){
       startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';return;
     }
     const attempts=[
-      {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false},
-      {video:{width:{ideal:640},height:{ideal:480}},audio:false},
+      {video:{width:{ideal:1920},height:{ideal:1080},facingMode:'user'},audio:false},
+      {video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false},
+      {video:{width:{ideal:1920},height:{ideal:1080}},audio:false},
       {video:true,audio:false}
     ];
     for(const c of attempts){
