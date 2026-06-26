@@ -466,6 +466,17 @@ html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
 <script>
 'use strict';
 
+// ── Global error trap (shows JS errors on the start screen so Android users see them) ──
+window.onerror=function(msg,src,line){
+  var el=document.getElementById('start-err');
+  if(el){el.textContent='JS ERROR L'+line+': '+msg;el.style.display='block';}
+  return false;
+};
+window.onunhandledrejection=function(ev){
+  var el=document.getElementById('start-err');
+  if(el){el.textContent='PROMISE ERROR: '+(ev.reason&&ev.reason.message||ev.reason);el.style.display='block';}
+};
+
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const startScreen    = document.getElementById('start-screen');
 const startBtn       = document.getElementById('start-btn');
@@ -1386,24 +1397,29 @@ function gotStream(stream){
   setInterval(()=>{if(!detecting&&video.readyState>=2){detecting=true;hands.send({image:video}).catch(()=>{detecting=false;});}},66);
 }
 async function startCamera(){
-  startBtn.disabled=true;startBtn.textContent='INITIALIZING…';startErr.style.display='none';
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    startErr.textContent=location.protocol==='https:'?'CAMERA API NOT AVAILABLE':'CAMERA REQUIRES HTTPS -> USE project-vr-beta.vercel.app';
-    startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';return;
+  try{
+    startBtn.disabled=true;startBtn.textContent='INITIALIZING…';startErr.style.display='none';
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      startErr.textContent=location.protocol==='https:'?'CAMERA API NOT AVAILABLE':'CAMERA REQUIRES HTTPS -> USE project-vr-beta.vercel.app';
+      startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';return;
+    }
+    const attempts=[
+      {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false},
+      {video:{width:{ideal:640},height:{ideal:480}},audio:false},
+      {video:true,audio:false}
+    ];
+    for(const c of attempts){
+      try{ gotStream(await navigator.mediaDevices.getUserMedia(c)); return; }
+      catch(e){ console.warn('[IRON HAND] cam attempt failed:',JSON.stringify(c),e.name,e.message); }
+    }
+    startErr.textContent=location.protocol!=='https:'&&location.hostname!=='localhost'
+      ?'CAMERA REQUIRES HTTPS -> USE project-vr-beta.vercel.app'
+      :'CAMERA DENIED OR UNAVAILABLE -> CHECK PERMISSIONS & RELOAD';
+    startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';
+  }catch(fatal){
+    startErr.textContent='INIT ERROR: '+fatal.name+' '+fatal.message;
+    startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';
   }
-  const attempts=[
-    {video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false},
-    {video:{width:{ideal:640},height:{ideal:480}},audio:false},
-    {video:true,audio:false}
-  ];
-  for(const c of attempts){
-    try{ gotStream(await navigator.mediaDevices.getUserMedia(c)); return; }
-    catch(e){ console.warn('[IRON HAND] cam attempt failed:',JSON.stringify(c),e.name,e.message); }
-  }
-  startErr.textContent=location.protocol!=='https:'&&location.hostname!=='localhost'
-    ?'CAMERA REQUIRES HTTPS -> USE project-vr-beta.vercel.app'
-    :'CAMERA DENIED OR UNAVAILABLE -> CHECK PERMISSIONS & RELOAD';
-  startErr.style.display='block';startBtn.disabled=false;startBtn.textContent='RETRY';
 }
 startBtn.addEventListener('click',startCamera);
 
