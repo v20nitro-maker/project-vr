@@ -888,10 +888,10 @@ extHandle.visible=false;
 scene.add(extHandle);
 
 // ── Join preview line ─────────────────────────────────────────────────────────
-joinLinePts=new Float32Array(6);
-joinLineGeo=new THREE.BufferGeometry();
+const joinLinePts=new Float32Array(6);
+const joinLineGeo=new THREE.BufferGeometry();
 joinLineGeo.setAttribute('position',new THREE.BufferAttribute(joinLinePts,3));
-joinLineMesh=new THREE.Line(joinLineGeo,new THREE.LineBasicMaterial({color:0x22ffff,transparent:true,opacity:0.8}));
+const joinLineMesh=new THREE.Line(joinLineGeo,new THREE.LineBasicMaterial({color:0x22ffff,transparent:true,opacity:0.8}));
 joinLineMesh.visible=false;
 scene.add(joinLineMesh);
 
@@ -1005,7 +1005,6 @@ let secPinching    = false;  // secondary-hand pinch state (updated early each a
 let secWasPinching = false;
 let secGrabbedObj  = null;   // object held by the secondary hand
 const _scur = new THREE.Vector3();  // secondary-hand cursor (world space, no smoothing)
-let joinLineGeo, joinLinePts, joinLineMesh;   // created in scene setup below
 let joinFlashObjs  = [];     // [{mesh, emissive}] waiting to restore after white flash
 let joinFlashEnd   = 0;      // performance.now() timestamp when flash expires
 
